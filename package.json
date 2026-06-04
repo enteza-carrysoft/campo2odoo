@@ -1,0 +1,35 @@
+{
+  "name": "campo2odoo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@azure/ai-form-recognizer": "^5",
+    "@hookform/resolvers": "^5",
+    "@tanstack/react-query": "^5",
+    "@tanstack/react-table": "^8",
+    "decimal.js": "^10",
+    "lucide-react": "^1",
+    "next": "^16",
+    "pdf-parse": "^2",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-hook-form": "^7",
+    "zod": "^3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^22",
+    "@types/pdf-parse": "^1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "typescript": "^6"
+  }
+}

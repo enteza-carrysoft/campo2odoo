@@ -1,0 +1,120 @@
+export type ExtractionEngine = "native" | "azure-di" | "llm";
+
+export interface AppConfig {
+  odooUrl: string;
+  odooDb: string;
+  odooUsername: string;
+  odooApiKey: string;
+  extractionEngine: ExtractionEngine;
+  azureDiEndpoint: string;
+  azureDiKey: string;
+  defaultJournalId: number | null;
+  defaultAccountId: number | null;
+}
+
+export interface OdooCompany {
+  id: number;
+  name: string;
+}
+
+export interface OdooPartner {
+  id: number;
+  name: string;
+  vat: string | null;
+  email: string | null;
+  company_id: [number, string] | false;
+}
+
+export interface OdooAccount {
+  id: number;
+  code: string;
+  name: string;
+  account_type: string;
+  company_ids: number[]; // Many2many in Odoo 17+ — list of company IDs
+}
+
+export interface OdooTax {
+  id: number;
+  name: string;
+  amount: number;
+  type_tax_use: string;
+  company_id: [number, string] | false;
+}
+
+export interface OdooJournal {
+  id: number;
+  name: string;
+  type: string;
+  company_id: [number, string] | false;
+}
+
+export interface OdooMasters {
+  companies: OdooCompany[];
+  partners: OdooPartner[];
+  accounts: OdooAccount[];
+  taxes: OdooTax[];
+  journals: OdooJournal[];
+  companyId: number;
+  companyName: string;
+}
+
+export interface ExtractedLine {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  taxRate: number | null;
+  amount: number;
+  // Odoo assignments (set by user in review)
+  accountId: number | null;
+  taxIds: number[];
+}
+
+export interface ExtractedInvoice {
+  supplierName: string | null;
+  supplierVat: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  dueDate: string | null;
+  currency: string;
+  subtotal: number | null;
+  totalTax: number | null;
+  total: number | null;
+  lines: ExtractedLine[];
+  confidence: number;
+  engine: ExtractionEngine;
+  rawText?: string;
+}
+
+export type InvoiceFileStatus =
+  | "pending"
+  | "extracting"
+  | "extracted"
+  | "error";
+
+export type ImportStatus = "idle" | "importing" | "success" | "error";
+
+export interface InvoiceFile {
+  id: string;
+  name: string;
+  size: number;
+  // Base64 for sending to API
+  dataBase64: string;
+  status: InvoiceFileStatus;
+  errorMessage?: string;
+  extracted?: ExtractedInvoice;
+  // Odoo assignments (editable by user)
+  companyId: number | null;
+  partnerId: number | null;
+  journalId: number | null;
+  lines: ExtractedLine[];
+  selectedForImport: boolean;
+  importStatus: ImportStatus;
+  importResult?: OdooImportResult;
+}
+
+export interface OdooImportResult {
+  moveId: number;
+  moveName: string;
+  url: string;
+}
