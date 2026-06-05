@@ -26,23 +26,20 @@ interface DocumentField {
   confidence?: number;
 }
 
-function getAmount(field?: DocumentField): number | null {
-  if (!field) return null;
-  // Check if value is an object containing amount (standard CurrencyValue in Azure SDK)
-  if (field.value && typeof field.value === "object" && "amount" in field.value) {
-    return (field.value as any).amount;
-  }
-  if (field.valueCurrency?.amount != null) return field.valueCurrency.amount;
-  if (field.valueNumber != null) return field.valueNumber;
-  const raw = field.content ?? field.valueString;
-  if (!raw) return null;
-  
-  // Robust Spanish and English number parsing
-  const cleaned = raw.replace(/\s/g, "");
+/**
+ * Parsea un número en formato español o inglés desde texto.
+ * "1.234,56" → 1234.56 · "1,234.56" → 1234.56 · "2,5" → 2.5 · "3 ud" → 3
+ */
+function parseLocaleNumber(raw: string): number | null {
+  // Conserva solo dígitos, separadores y signo (descarta unidades como "ud", "kg", "€").
+  const cleaned = raw.replace(/[^\d.,-]/g, "");
+  if (!cleaned) return null;
+
   const lastComma = cleaned.lastIndexOf(",");
   const lastDot = cleaned.lastIndexOf(".");
   let parsedStr = cleaned;
   if (lastComma > lastDot) {
+    // La coma es el separador decimal → quita puntos de millar.
     parsedStr = cleaned.replace(/\./g, "").replace(",", ".");
   } else if (lastDot > lastComma && cleaned.split(".").length > 2) {
     parsedStr = cleaned.replace(/\./g, "");
@@ -51,9 +48,40 @@ function getAmount(field?: DocumentField): number | null {
   } else {
     parsedStr = cleaned.replace(/,/g, "");
   }
-  
+
   const n = parseFloat(parsedStr);
   return isNaN(n) ? null : n;
+}
+
+function getAmount(field?: DocumentField): number | null {
+  if (!field) return null;
+  // Check if value is an object containing amount (standard CurrencyValue in Azure SDK)
+  if (field.value && typeof field.value === "object" && "amount" in field.value) {
+    return (field.value as any).amount;
+  }
+  if (field.valueCurrency?.amount != null) return field.valueCurrency.amount;
+  if (field.valueNumber != null) return field.valueNumber;
+  if (typeof field.value === "number") return field.value;
+  const raw = field.content ?? field.valueString;
+  if (!raw) return null;
+  return parseLocaleNumber(raw);
+}
+
+/**
+ * Lee un número "plano" (cantidad, etc.). A diferencia de getAmount, Azure DI
+ * suele entregar la cantidad en `value`/`content` y NO en `valueNumber`, por lo
+ * que mirar solo valueNumber hacía que siempre cayera al fallback (1).
+ */
+function getNumber(field?: DocumentField): number | null {
+  if (!field) return null;
+  if (typeof field.value === "number") return field.value;
+  if (field.valueNumber != null) return field.valueNumber;
+  if (field.value && typeof field.value === "object" && "amount" in field.value) {
+    return (field.value as any).amount;
+  }
+  const raw = field.content ?? field.valueString;
+  if (!raw) return null;
+  return parseLocaleNumber(raw);
 }
 
 function getContent(field?: DocumentField): string | null {
@@ -107,7 +135,10 @@ function parseInvoiceDoc(
     for (const item of itemsField.values) {
       const props = item.properties ?? {};
       const amount = getAmount(props.Amount) ?? getAmount(props.UnitPrice);
-      const qty = props.Quantity?.valueNumber ?? 1;
+      // Cantidad: Azure la entrega en value/content (no siempre en valueNumber).
+      // Solo cae a 1 cuando de verdad no hay dato; 0 o negativos también se ignoran.
+      const parsedQty = getNumber(props.Quantity);
+      const qty = parsedQty != null && parsedQty > 0 ? parsedQty : 1;
       const unitPrice = getAmount(props.UnitPrice) ?? (amount != null ? amount / qty : null);
       const taxRateRaw = getContent(props.TaxRate);
       let taxRate = taxRateRaw

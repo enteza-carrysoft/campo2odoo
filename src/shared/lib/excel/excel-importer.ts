@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs';
 import type { InvoiceFile, OdooMasters, ExtractedLine } from '@/shared/types';
 import { randomUUID } from 'crypto';
+import { matchPartner, isAutoAssignable, normalizeVat as normalizeVatShared } from '@/shared/lib/odoo/partner-match';
 
 export interface ExcelRowData {
   supplierName: string | null;
@@ -18,8 +19,7 @@ export interface ExcelRowData {
 }
 
 function normalizeVat(vat: string | null | undefined): string | null {
-  if (!vat) return null;
-  return vat.toString().replace(/[\s\-_]/g, '').toUpperCase();
+  return normalizeVatShared(vat);
 }
 
 function formatDate(val: any): string | null {
@@ -165,15 +165,12 @@ export function buildInvoicesFromExcelRows(
       let journalId: number | null = null;
 
       if (masters) {
-        // Find partner by VAT or Name
-        if (row.supplierVat) {
-          const match = masters.partners.find(p => normalizeVat(p.vat) === row.supplierVat);
-          if (match) partnerId = match.id;
-        }
-        if (!partnerId && row.supplierName) {
-          const match = masters.partners.find(p => p.name.toLowerCase() === row.supplierName!.toLowerCase());
-          if (match) partnerId = match.id;
-        }
+        // Emparejado robusto por VAT/nombre (normaliza sufijos, tildes, prefijo país…)
+        const match = matchPartner(masters.partners, {
+          name: row.supplierName,
+          vat: row.supplierVat,
+        });
+        if (match && isAutoAssignable(match.confidence)) partnerId = match.partner.id;
 
         // Find journal by code or name
         if (row.journalCode) {

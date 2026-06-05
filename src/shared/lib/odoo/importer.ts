@@ -1,6 +1,7 @@
 import type { OdooImportResult } from "@/shared/types";
 import type { ImportInvoiceInput } from "@/shared/schemas/invoice";
 import { OdooClient } from "./client";
+import { matchPartner, isAutoAssignable } from "./partner-match";
 
 export async function importInvoiceToOdoo(
   client: OdooClient,
@@ -21,45 +22,45 @@ export async function importInvoiceToOdoo(
 
   let partnerId = data.partnerId;
 
-  // Resolve or create partner if not provided
-  if (!partnerId) {
-    if (data.supplierVat) {
-      const partners = await client.searchRead<{ id: number }>(
-        "res.partner",
-        [["vat", "=", data.supplierVat]],
-        ["id"],
-        { limit: 1 }
-      );
-      if (partners.length > 0) {
-        partnerId = partners[0].id;
-      }
-    }
-    
-    if (!partnerId && data.supplierName) {
-      const partners = await client.searchRead<{ id: number }>(
-        "res.partner",
-        [["name", "=ilike", data.supplierName]],
-        ["id"],
-        { limit: 1 }
-      );
-      if (partners.length > 0) {
-        partnerId = partners[0].id;
-      }
-    }
+  // Resolve or create partner if not provided.
+  // El frontend ya resuelve la mayoría de casos; esto es la última línea de defensa
+  // (p. ej. importación masiva). Cargamos los proveedores y emparejamos con la misma
+  // lógica normalizada que el resto de la app, para NO crear duplicados por
+  // diferencias menores (sufijos societarios, tildes, prefijo país en el VAT…).
+  if (!partnerId && (data.supplierVat || data.supplierName)) {
+    const candidates = await client.searchRead<{
+      id: number;
+      name: string;
+      vat: string | false;
+    }>(
+      "res.partner",
+      [["supplier_rank", ">", 0]],
+      ["id", "name", "vat"],
+      { limit: 2000, order: "name asc" }
+    );
 
-    if (!partnerId) {
-      if (!data.supplierName) {
-        throw new Error(
-          "No se puede registrar la factura en Odoo: proveedor desconocido y sin nombre para poder darlo de alta."
-        );
-      }
-      partnerId = await client.create("res.partner", {
-        name: data.supplierName,
-        vat: data.supplierVat || false,
-        supplier_rank: 1,
-        company_type: "company",
-      });
+    const match = matchPartner(
+      candidates.map((c) => ({ id: c.id, name: c.name, vat: c.vat || null })),
+      { name: data.supplierName, vat: data.supplierVat }
+    );
+
+    if (match && isAutoAssignable(match.confidence)) {
+      partnerId = match.partner.id;
     }
+  }
+
+  if (!partnerId) {
+    if (!data.supplierName) {
+      throw new Error(
+        "No se puede registrar la factura en Odoo: proveedor desconocido y sin nombre para poder darlo de alta."
+      );
+    }
+    partnerId = await client.create("res.partner", {
+      name: data.supplierName,
+      vat: data.supplierVat || false,
+      supplier_rank: 1,
+      company_type: "company",
+    });
   }
 
   const moveVals: Record<string, unknown> = {

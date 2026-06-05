@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send, Zap, FileSpreadsheet } from "lucide-react";
+import { Loader2, Send, Zap, FileSpreadsheet, RefreshCw } from "lucide-react";
 import { cx } from "@/shared/styles";
 import type { AppConfig, InvoiceFile, OdooMasters } from "@/shared/types";
 import { ConfigPanel } from "@/features/config/components/ConfigPanel";
 import { UploadZone } from "@/features/invoices/components/UploadZone";
 import { InvoiceTable } from "@/features/invoices/components/InvoiceTable";
 import { PdfViewer } from "@/features/invoices/components/PdfViewer";
+import { matchPartner, isAutoAssignable } from "@/shared/lib/odoo/partner-match";
 
 const uuid = () => crypto.randomUUID();
 
@@ -82,6 +83,7 @@ export default function Home() {
   const [importingExcel, setImportingExcel] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [viewerWidth, setViewerWidth] = useState(420);
+  const [refreshingPartners, setRefreshingPartners] = useState(false);
   const dragRef = useRef<{ active: boolean; startX: number; startWidth: number }>({
     active: false, startX: 0, startWidth: 420,
   });
@@ -267,6 +269,30 @@ export default function Home() {
     );
   }
 
+  async function handleRefreshPartners() {
+    if (!masters) return;
+    setRefreshingPartners(true);
+    try {
+      const res = await fetch("/api/odoo/partners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          odooUrl: config.odooUrl,
+          odooDb: config.odooDb,
+          odooUsername: config.odooUsername,
+          odooApiKey: config.odooApiKey,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error ?? "Error al recargar proveedores");
+      setMasters((prev) => prev ? { ...prev, partners: data.partners } : prev);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Error al recargar proveedores");
+    } finally {
+      setRefreshingPartners(false);
+    }
+  }
+
   async function handleFiles(files: File[]) {
     const newInvoices: InvoiceFile[] = await Promise.all(
       files.map(async (f) => {
@@ -331,6 +357,21 @@ export default function Home() {
           const formattedName = formatSplitName(inv.name, extracted.pageRange);
           const approximateSize = Math.round((dataBase64.length * 3) / 4);
 
+          // Auto-relacionar el proveedor extraído con un proveedor de Odoo.
+          // Solo se asigna cuando la confianza es alta (VAT / nombre exacto / fuerte)
+          // para no asignar un proveedor equivocado; los casos dudosos quedan sin
+          // asignar y el usuario elige en la tabla.
+          let matchedPartnerId: number | null = null;
+          if (masters?.partners?.length && (extracted.supplierName || extracted.supplierVat)) {
+            const match = matchPartner(masters.partners, {
+              name: extracted.supplierName,
+              vat: extracted.supplierVat,
+            });
+            if (match && isAutoAssignable(match.confidence)) {
+              matchedPartnerId = match.partner.id;
+            }
+          }
+
           return {
             id: uuid(),
             name: formattedName,
@@ -339,7 +380,7 @@ export default function Home() {
             status: "extracted" as const,
             extracted,
             companyId: inv.companyId ?? masters?.companyId ?? null,
-            partnerId: null,
+            partnerId: matchedPartnerId,
             journalId: inv.journalId ?? journalForCompany(inv.companyId ?? masters?.companyId ?? null),
             lines: (extracted.lines ?? []).map((line: import("@/shared/types").ExtractedLine) => {
               const cId = String(inv.companyId ?? masters?.companyId ?? "");
@@ -644,6 +685,21 @@ export default function Home() {
                       )}
                       Exportar a Excel
                     </button>
+                    {masters && (
+                      <button
+                        onClick={handleRefreshPartners}
+                        disabled={refreshingPartners}
+                        className={cx.btnOutline}
+                        title="Recarga la lista de proveedores desde Odoo"
+                      >
+                        {refreshingPartners ? (
+                          <Loader2 size={16} className="animate-spin mr-1" />
+                        ) : (
+                          <RefreshCw size={16} className="mr-1" />
+                        )}
+                        Actualizar proveedores
+                      </button>
+                    )}
                   </div>
                   <button
                     onClick={() => {
