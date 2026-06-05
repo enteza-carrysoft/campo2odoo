@@ -33,7 +33,9 @@ export const importInvoiceSchema = z.object({
   odooUsername: z.string().min(1),
   odooApiKey: z.string().min(1),
   companyId: z.number().int().positive(),
-  partnerId: z.number().int().positive("Proveedor requerido"),
+  partnerId: z.number().int().nullable().optional(),
+  supplierName: z.string().nullable().optional(),
+  supplierVat: z.string().nullable().optional(),
   journalId: z.number().int().positive("Diario requerido"),
   invoiceNumber: z.string().nullable(),
   invoiceDate: z.string().nullable(),
@@ -48,8 +50,8 @@ export const importInvoiceSchema = z.object({
       taxIds: z.array(z.number().int()),
     })
   ).min(1, "Al menos una línea requerida"),
-  pdfBase64: z.string().min(1),
-  fileName: z.string(),
+  pdfBase64: z.string().optional().nullable(),
+  fileName: z.string().optional().nullable(),
 });
 
 export type ImportInvoiceInput = z.infer<typeof importInvoiceSchema>;

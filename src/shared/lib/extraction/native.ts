@@ -43,7 +43,7 @@ function extractMatch(text: string, pattern: RegExp): string | null {
 
 export async function extractWithNative(
   pdfBuffer: Buffer
-): Promise<ExtractedInvoice> {
+): Promise<ExtractedInvoice[]> {
   // pdf-parse v2: class-based API
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: pdfBuffer, verbosity: 0 });
@@ -96,19 +96,24 @@ export async function extractWithNative(
     .filter((l: string) => l.length > 3 && l.length < 80);
   const supplierName = firstLines[0] ?? null;
 
-  return {
-    supplierName,
-    supplierVat: extractMatch(text, PATTERNS.vat),
-    invoiceNumber: extractMatch(text, PATTERNS.invoiceNumber),
-    invoiceDate: rawInvoiceDate ? normalizeDate(rawInvoiceDate) : null,
-    dueDate: rawDueDate ? normalizeDate(rawDueDate) : null,
-    currency: "EUR",
-    subtotal,
-    totalTax: vatAmount,
-    total,
-    lines,
-    confidence: 0.5,
-    engine: "native",
-    rawText: text,
-  };
+  const totalPages = result.pages?.length ?? 1;
+
+  return [
+    {
+      supplierName,
+      supplierVat: extractMatch(text, PATTERNS.vat),
+      invoiceNumber: extractMatch(text, PATTERNS.invoiceNumber),
+      invoiceDate: rawInvoiceDate ? normalizeDate(rawInvoiceDate) : null,
+      dueDate: rawDueDate ? normalizeDate(rawDueDate) : null,
+      currency: "EUR",
+      subtotal,
+      totalTax: vatAmount,
+      total,
+      lines,
+      confidence: 0.5,
+      engine: "native",
+      rawText: text,
+      pageRange: Array.from({ length: totalPages }, (_, i) => i + 1),
+    },
+  ];
 }

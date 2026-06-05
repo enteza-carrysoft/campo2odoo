@@ -19,10 +19,53 @@ export async function importInvoiceToOdoo(
     },
   ]);
 
+  let partnerId = data.partnerId;
+
+  // Resolve or create partner if not provided
+  if (!partnerId) {
+    if (data.supplierVat) {
+      const partners = await client.searchRead<{ id: number }>(
+        "res.partner",
+        [["vat", "=", data.supplierVat]],
+        ["id"],
+        { limit: 1 }
+      );
+      if (partners.length > 0) {
+        partnerId = partners[0].id;
+      }
+    }
+    
+    if (!partnerId && data.supplierName) {
+      const partners = await client.searchRead<{ id: number }>(
+        "res.partner",
+        [["name", "=ilike", data.supplierName]],
+        ["id"],
+        { limit: 1 }
+      );
+      if (partners.length > 0) {
+        partnerId = partners[0].id;
+      }
+    }
+
+    if (!partnerId) {
+      if (!data.supplierName) {
+        throw new Error(
+          "No se puede registrar la factura en Odoo: proveedor desconocido y sin nombre para poder darlo de alta."
+        );
+      }
+      partnerId = await client.create("res.partner", {
+        name: data.supplierName,
+        vat: data.supplierVat || false,
+        supplier_rank: 1,
+        company_type: "company",
+      });
+    }
+  }
+
   const moveVals: Record<string, unknown> = {
     move_type: "in_invoice",
     company_id: data.companyId,
-    partner_id: data.partnerId,
+    partner_id: partnerId,
     journal_id: data.journalId,
     invoice_line_ids: invoiceLineIds,
   };
@@ -37,15 +80,17 @@ export async function importInvoiceToOdoo(
   // Create draft invoice
   const moveId = await client.create("account.move", moveVals);
 
-  // Attach original PDF
-  await client.create("ir.attachment", {
-    name: data.fileName,
-    type: "binary",
-    datas: data.pdfBase64,
-    res_model: "account.move",
-    res_id: moveId,
-    mimetype: "application/pdf",
-  });
+  // Attach original PDF if present
+  if (data.pdfBase64) {
+    await client.create("ir.attachment", {
+      name: data.fileName || "factura.pdf",
+      type: "binary",
+      datas: data.pdfBase64,
+      res_model: "account.move",
+      res_id: moveId,
+      mimetype: "application/pdf",
+    });
+  }
 
   // Read back the assigned sequence name
   const [move] = await client.searchRead<{ id: number; name: string }>(

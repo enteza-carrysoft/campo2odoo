@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileText, ScanLine, CheckCircle, AlertTriangle, XCircle } from "lucide-react";
+import { FileText, ScanLine, CheckCircle, AlertTriangle, XCircle, ZoomIn, ZoomOut } from "lucide-react";
 import type { InvoiceFile } from "@/shared/types";
+
+const ZOOM_LEVELS = [50, 75, 100, 125, 150, 175, 200];
+const DEFAULT_ZOOM_IDX = 2; // 100%
 
 interface Props {
   invoice: InvoiceFile | null;
@@ -34,6 +37,7 @@ function ConfidenceBadge({ confidence }: { confidence: number }) {
 export function PdfViewer({ invoice }: Props) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [zoomIdx, setZoomIdx] = useState(DEFAULT_ZOOM_IDX);
 
   useEffect(() => {
     if (!invoice?.dataBase64) {
@@ -43,6 +47,7 @@ export function PdfViewer({ invoice }: Props) {
 
     setLoading(true);
     setBlobUrl(null);
+    setZoomIdx(DEFAULT_ZOOM_IDX);
 
     // Defer blob creation to avoid blocking the UI
     const timer = setTimeout(() => {
@@ -114,6 +119,28 @@ export function PdfViewer({ invoice }: Props) {
         {invoice.extracted?.confidence != null && (
           <ConfidenceBadge confidence={invoice.extracted.confidence} />
         )}
+        {/* ── Zoom controls ── */}
+        <div className="flex items-center gap-1 shrink-0 border-l border-gray-700/50 pl-3 ml-1">
+          <button
+            onClick={() => setZoomIdx((i) => Math.max(0, i - 1))}
+            disabled={zoomIdx === 0}
+            title="Reducir zoom"
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ZoomOut size={13} />
+          </button>
+          <span className="text-xs text-gray-400 w-9 text-center tabular-nums select-none">
+            {ZOOM_LEVELS[zoomIdx]}%
+          </span>
+          <button
+            onClick={() => setZoomIdx((i) => Math.min(ZOOM_LEVELS.length - 1, i + 1))}
+            disabled={zoomIdx === ZOOM_LEVELS.length - 1}
+            title="Ampliar zoom"
+            className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-700 text-gray-400 hover:text-gray-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ZoomIn size={13} />
+          </button>
+        </div>
       </div>
 
       {/* ── Extraction summary strip ───────────────────────────────────── */}
@@ -152,8 +179,8 @@ export function PdfViewer({ invoice }: Props) {
         )}
         {blobUrl && (
           <iframe
-            key={blobUrl}
-            src={blobUrl}
+            key={`${blobUrl}-${ZOOM_LEVELS[zoomIdx]}`}
+            src={`${blobUrl}#zoom=${ZOOM_LEVELS[zoomIdx]}`}
             className="w-full h-full border-0"
             title={invoice.name}
           />

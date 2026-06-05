@@ -9,7 +9,9 @@ export interface AppConfig {
   azureDiEndpoint: string;
   azureDiKey: string;
   defaultJournalId: number | null;
-  defaultAccountId: number | null;
+  defaultJournalMap: Record<string, number>; // companyId → journalId
+  defaultAccountMap: Record<string, number>; // companyId → accountId
+  defaultTaxMap: Record<string, number>;     // companyId → taxId
 }
 
 export interface OdooCompany {
@@ -84,6 +86,7 @@ export interface ExtractedInvoice {
   confidence: number;
   engine: ExtractionEngine;
   rawText?: string;
+  pageRange?: number[];
 }
 
 export type InvoiceFileStatus =

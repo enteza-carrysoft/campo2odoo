@@ -15,19 +15,25 @@ import {
   ExternalLink,
   Trash2,
   Plus,
+  ChevronsDownUp,
+  ChevronsUpDown,
 } from "lucide-react";
 
 interface Props {
   invoices: InvoiceFile[];
   masters: OdooMasters | null;
   onChange: (id: string, updates: Partial<InvoiceFile>) => void;
+  onDelete: (id: string) => void;
   activeId: string | null;
   onSelect: (id: string) => void;
+  journalMap: Record<string, number>;
+  accountMap: Record<string, number>;
+  taxMap: Record<string, number>;
 }
 
-const COLS = 10; // total columns in thead
+const COLS = 11; // total columns in thead
 
-export function InvoiceTable({ invoices, masters, onChange, activeId, onSelect }: Props) {
+export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, onSelect, journalMap, accountMap, taxMap }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -97,7 +103,31 @@ export function InvoiceTable({ invoices, masters, onChange, activeId, onSelect }
     extracted.forEach((i) => onChange(i.id, { selectedForImport: !allSelected }));
   }
 
+  const expandableIds = invoices.filter((i) => i.status === "extracted").map((i) => i.id);
+  const allExpanded = expandableIds.length > 0 && expandableIds.every((id) => expanded.has(id));
+
   return (
+    <div className="space-y-2">
+      {/* Expand / Collapse toolbar */}
+      {expandableIds.length > 0 && (
+        <div className="flex gap-2 justify-end">
+          <button
+            onClick={() => setExpanded(new Set(expandableIds))}
+            disabled={allExpanded}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-sky-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronsUpDown size={13} /> Expandir todo
+          </button>
+          <span className="text-gray-200">|</span>
+          <button
+            onClick={() => setExpanded(new Set())}
+            disabled={expanded.size === 0}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-sky-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronsDownUp size={13} /> Contraer todo
+          </button>
+        </div>
+      )}
     <div className="border border-gray-200 rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-gray-50 text-xs uppercase text-gray-500 tracking-wide">
@@ -118,6 +148,7 @@ export function InvoiceTable({ invoices, masters, onChange, activeId, onSelect }
             <th className="px-3 py-3 text-right">Total</th>
             <th className="px-3 py-3 text-left">Diario</th>
             <th className="px-3 py-3 text-left">Estado</th>
+            <th className="px-3 py-3 w-8" />
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -159,7 +190,23 @@ export function InvoiceTable({ invoices, masters, onChange, activeId, onSelect }
                   <select
                     value={inv.companyId ?? ""}
                     onClick={(e) => e.stopPropagation()}
-                    onChange={(e) => onChange(inv.id, { companyId: e.target.value ? Number(e.target.value) : null })}
+                    onChange={(e) => {
+                      const companyId = e.target.value ? Number(e.target.value) : null;
+                      const cId = String(companyId ?? "");
+                      const updates: Partial<InvoiceFile> = { companyId };
+                      if (companyId && journalMap[cId]) updates.journalId = journalMap[cId];
+                      // Reset line accounts/taxes to the new company's defaults to avoid
+                      // cross-company mismatches. If no default is configured → null forces
+                      // the user to pick, which is safer than sending wrong-company IDs.
+                      const defAccount = companyId ? (accountMap[cId] ?? null) : null;
+                      const defTax    = companyId ? (taxMap[cId]    ?? null) : null;
+                      updates.lines = inv.lines.map((l) => ({
+                        ...l,
+                        accountId: defAccount,
+                        taxIds: defTax ? [defTax] : [],
+                      }));
+                      onChange(inv.id, updates);
+                    }}
                     className={`${cx.select} text-xs`}
                   >
                     <option value="">— Empresa —</option>
@@ -176,12 +223,13 @@ export function InvoiceTable({ invoices, masters, onChange, activeId, onSelect }
                         <span className="text-xs text-gray-400 truncate max-w-48">{inv.extracted.supplierName}</span>
                       )}
                       <select
-                        value={inv.partnerId ?? ""}
+                        value={inv.partnerId ?? "create_new"}
                         onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => onChange(inv.id, { partnerId: e.target.value ? Number(e.target.value) : null })}
-                        className={`${cx.select} text-xs`}
+                        onChange={(e) => onChange(inv.id, { partnerId: e.target.value === "create_new" ? null : Number(e.target.value) })}
+                        className={`${cx.select} text-xs ${!inv.partnerId ? "text-amber-700 bg-amber-50 border-amber-300 font-medium" : ""}`}
                       >
-                        <option value="">— Seleccionar proveedor —</option>
+                        <option value="create_new">🆕 Crear nuevo: {inv.extracted?.supplierName || "Proveedor nuevo"}</option>
+                        <option value="">— Seleccionar existente —</option>
                         {(masters?.partners ?? []).map((p) => (
                           <option key={p.id} value={p.id}>{p.name}{p.vat ? ` (${p.vat})` : ""}</option>
                         ))}
@@ -247,6 +295,16 @@ export function InvoiceTable({ invoices, masters, onChange, activeId, onSelect }
                   ) : <span className="text-gray-400">—</span>}
                 </td>
                 <td className="px-3 py-3"><StatusBadge invoice={inv} /></td>
+                <td className="px-3 py-3">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onDelete(inv.id); }}
+                    disabled={inv.importStatus === "importing"}
+                    title="Eliminar factura"
+                    className="text-gray-300 hover:text-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </td>
               </tr>
 
               {/* ── Expanded: header editing + lines ── */}
@@ -466,6 +524,7 @@ export function InvoiceTable({ invoices, masters, onChange, activeId, onSelect }
           ))}
         </tbody>
       </table>
+    </div>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractInvoice } from "@/shared/lib/extraction";
+import { splitPdfPages } from "@/shared/lib/extraction/pdf-splitter";
 import type { ExtractionEngine } from "@/shared/types";
 
 export async function POST(req: NextRequest) {
@@ -17,14 +18,37 @@ export async function POST(req: NextRequest) {
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const result = await extractInvoice(buffer, {
+    const invoices = await extractInvoice(buffer, {
       engine,
       azureDiEndpoint: azureDiEndpoint ?? undefined,
       azureDiKey: azureDiKey ?? undefined,
     });
 
-    return NextResponse.json(result);
+    const results = await Promise.all(
+      invoices.map(async (extracted) => {
+        let subPdfBase64: string;
+        try {
+          if (extracted.pageRange && extracted.pageRange.length > 0) {
+            const splitBuffer = await splitPdfPages(buffer, extracted.pageRange);
+            subPdfBase64 = splitBuffer.toString("base64");
+          } else {
+            subPdfBase64 = buffer.toString("base64");
+          }
+        } catch (splitErr) {
+          console.error("Error splitting PDF pages, falling back to original:", splitErr);
+          subPdfBase64 = buffer.toString("base64");
+        }
+
+        return {
+          extracted,
+          dataBase64: subPdfBase64,
+        };
+      })
+    );
+
+    return NextResponse.json(results);
   } catch (err) {
+    console.error("Error during extraction:", err);
     const message = err instanceof Error ? err.message : "Error de extracción";
     return NextResponse.json({ error: message }, { status: 400 });
   }

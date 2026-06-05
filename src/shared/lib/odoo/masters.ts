@@ -42,20 +42,34 @@ export async function fetchMasters(client: OdooClient): Promise<OdooMasters> {
     { limit: 1000, order: "name asc", ...ES }
   );
 
-  // account.account uses company_ids (Many2many) in Odoo 17+.
-  // Limit 5000 to load the full chart of accounts.
-  const accounts = await client.searchRead<OdooAccount>(
-    "account.account",
-    [["deprecated", "=", false]],
-    ["id", "code", "name", "account_type", "company_ids"],
-    { limit: 5000, order: "code asc", ...ES }
+  // account.account: `code` is company-dependent in Odoo 18 — reading without a
+  // company context returns empty codes for non-active companies. Load per company
+  // so each batch uses the correct company context, then dedup by ID.
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const accountMap = new Map<number, OdooAccount>();
+  for (let i = 0; i < companies.length; i++) {
+    if (i > 0) await sleep(400);
+    const batch = await client.searchRead<OdooAccount>(
+      "account.account",
+      [["deprecated", "=", false]],
+      ["id", "code", "name", "account_type", "company_ids"],
+      {
+        limit: 5000,
+        order: "code asc",
+        context: { lang: "es_ES", company_id: companies[i].id, allowed_company_ids: [companies[i].id] },
+      }
+    );
+    batch.forEach((a) => { if (!accountMap.has(a.id)) accountMap.set(a.id, a); });
+  }
+  const accounts = Array.from(accountMap.values()).sort((a, b) =>
+    (a.code ?? "").localeCompare(b.code ?? "")
   );
 
   const taxes = await client.searchRead<OdooTax>(
     "account.tax",
     [
       ["active", "=", true],
-      ["type_tax_use", "in", ["purchase", "none"]],
+      ["type_tax_use", "=", "purchase"],
     ],
     ["id", "name", "amount", "type_tax_use", "company_id"],
     { order: "amount desc", ...ES }

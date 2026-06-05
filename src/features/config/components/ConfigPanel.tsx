@@ -2,24 +2,27 @@
 
 import { useState } from "react";
 import type { AppConfig, OdooMasters } from "@/shared/types";
-import { CheckCircle, XCircle, Loader2, RefreshCw, Server } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, RefreshCw, Server, Bookmark, Save } from "lucide-react";
 import { cx } from "@/shared/styles";
 
 interface Props {
   config: AppConfig;
   onChange: (c: AppConfig) => void;
   onMastersLoaded: (m: OdooMasters) => void;
+  masters: OdooMasters | null;
 }
 
 type TestStatus = "idle" | "testing" | "ok" | "error";
 type MastersStatus = "idle" | "loading" | "ok" | "error";
 
-export function ConfigPanel({ config, onChange, onMastersLoaded }: Props) {
+export function ConfigPanel({ config, onChange, onMastersLoaded, masters }: Props) {
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
   const [mastersStatus, setMastersStatus] = useState<MastersStatus>("idle");
   const [mastersMessage, setMastersMessage] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "ok" | "error">("idle");
+  const [saveMessage, setSaveMessage] = useState("");
 
   function set<K extends keyof AppConfig>(key: K, value: AppConfig[K]) {
     onChange({ ...config, [key]: value });
@@ -75,6 +78,29 @@ export function ConfigPanel({ config, onChange, onMastersLoaded }: Props) {
     } catch (err) {
       setMastersStatus("error");
       setMastersMessage(err instanceof Error ? err.message : "Error al cargar");
+    }
+  }
+
+  async function handleSaveEnv() {
+    setSaveStatus("saving");
+    setSaveMessage("");
+    try {
+      const res = await fetch("/api/config/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          defaultJournalMap: config.defaultJournalMap,
+          defaultAccountMap: config.defaultAccountMap,
+          defaultTaxMap: config.defaultTaxMap,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error ?? "Error");
+      setSaveStatus("ok");
+      setSaveMessage("Guardado en .env.local correctamente.");
+    } catch (err) {
+      setSaveStatus("error");
+      setSaveMessage(err instanceof Error ? err.message : "Error al guardar");
     }
   }
 
@@ -235,6 +261,128 @@ export function ConfigPanel({ config, onChange, onMastersLoaded }: Props) {
           </span>
         )}
       </div>
+
+      {/* Valores por defecto por empresa — solo visible cuando los maestros están cargados */}
+      {masters && masters.companies.length > 0 && (
+        <>
+          <hr className="border-gray-100" />
+          <div>
+            <div className="flex items-center gap-2 text-gray-700 font-semibold mb-1">
+              <Bookmark size={16} />
+              <span className="text-sm">Valores por defecto por empresa</span>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">
+              Se aplican automáticamente al extraer facturas. Editables en <code className="bg-gray-100 px-1 rounded">.env.local</code> con <code className="bg-gray-100 px-1 rounded">DEFAULT_JOURNAL_MAP</code>, <code className="bg-gray-100 px-1 rounded">DEFAULT_ACCOUNT_MAP</code> y <code className="bg-gray-100 px-1 rounded">DEFAULT_TAX_MAP</code>.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500 border-b border-gray-100">
+                    <th className="text-left pb-2 font-medium pr-3">Empresa</th>
+                    <th className="text-left pb-2 font-medium pr-3">Diario por defecto</th>
+                    <th className="text-left pb-2 font-medium pr-3">Cuenta de gastos</th>
+                    <th className="text-left pb-2 font-medium">Impuesto</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {masters.companies.map((company) => {
+                    const cId = String(company.id);
+                    const companyJournals = masters.journals.filter(
+                      (j) => j.company_id && j.company_id[0] === company.id
+                    );
+                    const companyAccounts = masters.accounts.filter(
+                      (a) => !a.company_ids.length || a.company_ids.includes(company.id)
+                    );
+                    const companyTaxes = masters.taxes.filter(
+                      (t) => !t.company_id || t.company_id[0] === company.id
+                    );
+                    return (
+                      <tr key={company.id}>
+                        <td className="py-2 pr-3 font-medium text-gray-700 whitespace-nowrap">{company.name}</td>
+                        <td className="py-2 pr-3">
+                          <select
+                            value={config.defaultJournalMap[cId] ?? ""}
+                            onChange={(e) => {
+                              const map = { ...config.defaultJournalMap };
+                              if (e.target.value) map[cId] = Number(e.target.value);
+                              else delete map[cId];
+                              set("defaultJournalMap", map);
+                            }}
+                            className={`${cx.select} text-xs w-full`}
+                          >
+                            <option value="">—</option>
+                            {companyJournals.map((j) => (
+                              <option key={j.id} value={j.id}>{j.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-2 pr-3">
+                          <select
+                            value={config.defaultAccountMap[cId] ?? ""}
+                            onChange={(e) => {
+                              const map = { ...config.defaultAccountMap };
+                              if (e.target.value) map[cId] = Number(e.target.value);
+                              else delete map[cId];
+                              set("defaultAccountMap", map);
+                            }}
+                            className={`${cx.select} text-xs w-full`}
+                          >
+                            <option value="">—</option>
+                            {companyAccounts.map((a) => (
+                              <option key={a.id} value={a.id}>{a.code} · {a.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-2">
+                          <select
+                            value={config.defaultTaxMap[cId] ?? ""}
+                            onChange={(e) => {
+                              const map = { ...config.defaultTaxMap };
+                              if (e.target.value) map[cId] = Number(e.target.value);
+                              else delete map[cId];
+                              set("defaultTaxMap", map);
+                            }}
+                            className={`${cx.select} text-xs w-full`}
+                          >
+                            <option value="">—</option>
+                            {companyTaxes.map((t) => (
+                              <option key={t.id} value={t.id}>{t.name} ({t.amount}%)</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Botón guardar en .env.local */}
+            <div className="flex flex-wrap items-center gap-3 mt-4 pt-4 border-t border-gray-100">
+              <button
+                onClick={handleSaveEnv}
+                disabled={saveStatus === "saving"}
+                className={cx.btnOutline}
+              >
+                {saveStatus === "saving"
+                  ? <Loader2 size={15} className="animate-spin mr-1.5" />
+                  : <Save size={15} className="mr-1.5" />}
+                Guardar en .env.local
+              </button>
+              {saveStatus === "ok" && (
+                <span className="flex items-center gap-1 text-green-600 text-sm">
+                  <CheckCircle size={15} /> {saveMessage}
+                </span>
+              )}
+              {saveStatus === "error" && (
+                <span className="flex items-center gap-1 text-red-600 text-sm">
+                  <XCircle size={15} /> {saveMessage}
+                </span>
+              )}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

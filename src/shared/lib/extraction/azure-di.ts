@@ -4,6 +4,8 @@ import {
 } from "@azure/ai-form-recognizer";
 import type { ExtractedInvoice, ExtractedLine } from "@/shared/types";
 import { randomUUID } from "crypto";
+import { splitPdfPages } from "./pdf-splitter";
+import { PDFDocument } from "pdf-lib";
 
 interface CurrencyValue {
   amount?: number;
@@ -12,6 +14,7 @@ interface CurrencyValue {
 
 interface DocumentField {
   content?: string;
+  value?: any;
   valueString?: string;
   valueNumber?: number;
   valueDate?: Date;
@@ -25,12 +28,31 @@ interface DocumentField {
 
 function getAmount(field?: DocumentField): number | null {
   if (!field) return null;
+  // Check if value is an object containing amount (standard CurrencyValue in Azure SDK)
+  if (field.value && typeof field.value === "object" && "amount" in field.value) {
+    return (field.value as any).amount;
+  }
   if (field.valueCurrency?.amount != null) return field.valueCurrency.amount;
   if (field.valueNumber != null) return field.valueNumber;
   const raw = field.content ?? field.valueString;
   if (!raw) return null;
-  const cleaned = raw.replace(/[^\d,.-]/g, "").replace(",", ".");
-  const n = parseFloat(cleaned);
+  
+  // Robust Spanish and English number parsing
+  const cleaned = raw.replace(/\s/g, "");
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  let parsedStr = cleaned;
+  if (lastComma > lastDot) {
+    parsedStr = cleaned.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot > lastComma && cleaned.split(".").length > 2) {
+    parsedStr = cleaned.replace(/\./g, "");
+  } else if (lastDot > lastComma && cleaned.split(".").pop()?.length === 3) {
+    parsedStr = cleaned.replace(/\./g, "");
+  } else {
+    parsedStr = cleaned.replace(/,/g, "");
+  }
+  
+  const n = parseFloat(parsedStr);
   return isNaN(n) ? null : n;
 }
 
@@ -40,13 +62,21 @@ function getContent(field?: DocumentField): string | null {
 
 function getDate(field?: DocumentField): string | null {
   if (!field) return null;
+  if (field.value instanceof Date) {
+    const d = field.value;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  // If it's an ISO string from Azure SDK
+  if (field.value && typeof field.value === "string" && field.value.includes("T")) {
+    return field.value.split("T")[0];
+  }
   if (field.valueDate) {
     const d = field.valueDate;
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
   const raw = getContent(field);
   if (!raw) return null;
-  // Try to parse common date formats
+  // Try to parse common date formats (e.g. DD/MM/YYYY)
   const m = raw.match(/(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
   if (!m) return null;
   const [, a, b, c] = m;
@@ -54,24 +84,21 @@ function getDate(field?: DocumentField): string | null {
   return `${year}-${b.padStart(2, "0")}-${a.padStart(2, "0")}`;
 }
 
-export async function extractWithAzureDI(
-  pdfBuffer: Buffer,
-  endpoint: string,
-  apiKey: string
-): Promise<ExtractedInvoice> {
-  const client = new DocumentAnalysisClient(
-    endpoint,
-    new AzureKeyCredential(apiKey)
-  );
-
-  const poller = await client.beginAnalyzeDocument(
-    "prebuilt-invoice",
-    pdfBuffer
-  );
-  const result = await poller.pollUntilDone();
-
-  const doc = result.documents?.[0];
-  const fields = (doc?.fields ?? {}) as Record<string, DocumentField>;
+/**
+ * Convierte los campos de un documento de Azure (una página) en una factura.
+ * No decide si la página se conserva o se fusiona: eso lo resuelve el llamador.
+ */
+function parseInvoiceDoc(
+  fields: Record<string, DocumentField>,
+  confidence: number,
+  pageNum: number
+): ExtractedInvoice {
+  // Deduce global tax rate if lines are missing it (e.g. 1092 / 5200 = 21%)
+  const subtotalAmount = getAmount(fields.SubTotal);
+  const totalTaxAmount = getAmount(fields.TotalTax);
+  const globalTaxRate = (totalTaxAmount && subtotalAmount && subtotalAmount > 0)
+    ? Math.round((totalTaxAmount / subtotalAmount) * 100)
+    : null;
 
   // Extract line items
   const lines: ExtractedLine[] = [];
@@ -83,9 +110,14 @@ export async function extractWithAzureDI(
       const qty = props.Quantity?.valueNumber ?? 1;
       const unitPrice = getAmount(props.UnitPrice) ?? (amount != null ? amount / qty : null);
       const taxRateRaw = getContent(props.TaxRate);
-      const taxRate = taxRateRaw
+      let taxRate = taxRateRaw
         ? parseFloat(taxRateRaw.replace("%", "").trim())
         : null;
+
+      // Fallback to deduced global tax rate if line-level is missing
+      if (taxRate === null || isNaN(taxRate)) {
+        taxRate = globalTaxRate;
+      }
 
       lines.push({
         id: randomUUID(),
@@ -102,7 +134,6 @@ export async function extractWithAzureDI(
 
   // Fallback: single global line from totals
   if (lines.length === 0) {
-    const subtotalAmount = getAmount(fields.SubTotal);
     const totalAmount = getAmount(fields.InvoiceTotal);
     const lineAmount = subtotalAmount ?? totalAmount;
     if (lineAmount != null) {
@@ -111,7 +142,7 @@ export async function extractWithAzureDI(
         description: "Servicios/Productos (revisar detalle)",
         quantity: 1,
         unitPrice: lineAmount,
-        taxRate: null,
+        taxRate: globalTaxRate,
         amount: lineAmount,
         accountId: null,
         taxIds: [],
@@ -119,21 +150,144 @@ export async function extractWithAzureDI(
     }
   }
 
-  const confidence = doc?.confidence ?? 0.85;
-
   return {
     supplierName: getContent(fields.VendorName),
     supplierVat: getContent(fields.VendorTaxId),
     invoiceNumber: getContent(fields.InvoiceId),
     invoiceDate: getDate(fields.InvoiceDate),
     dueDate: getDate(fields.DueDate),
-    currency:
-      fields.InvoiceTotal?.valueCurrency?.currencyCode ?? "EUR",
-    subtotal: getAmount(fields.SubTotal),
-    totalTax: getAmount(fields.TotalTax),
+    currency: fields.InvoiceTotal?.valueCurrency?.currencyCode ?? "EUR",
+    subtotal: subtotalAmount,
+    totalTax: totalTaxAmount,
     total: getAmount(fields.InvoiceTotal),
     lines,
     confidence,
     engine: "azure-di",
+    pageRange: [pageNum], // Tagged with the page number it was split from
   };
+}
+
+/**
+ * Una página tiene "señal de factura" si trae cabecera o importes propios.
+ * Las páginas sin nº, sin importes y sin proveedor+líneas (portadas, anexos,
+ * separadores) se descartan en vez de generar facturas vacías.
+ */
+function hasInvoiceSignal(inv: ExtractedInvoice): boolean {
+  return (
+    inv.invoiceNumber != null ||
+    inv.total != null ||
+    inv.subtotal != null ||
+    (inv.supplierName != null && inv.lines.length > 0)
+  );
+}
+
+/**
+ * Decide si la página actual es continuación de la factura anterior
+ * (factura que ocupa varias páginas dentro del mismo PDF):
+ *  - Mismo nº de factura no nulo en ambas, o
+ *  - Página sin cabecera propia (sin nº, sin NIF, sin importes) pero con líneas.
+ */
+function isContinuationOf(inv: ExtractedInvoice, prev: ExtractedInvoice): boolean {
+  if (inv.invoiceNumber && prev.invoiceNumber) {
+    return inv.invoiceNumber === prev.invoiceNumber;
+  }
+  return (
+    inv.invoiceNumber == null &&
+    inv.supplierVat == null &&
+    inv.total == null &&
+    inv.subtotal == null &&
+    inv.lines.length > 0
+  );
+}
+
+/** Fusiona una página de continuación dentro de la factura previa. */
+function mergeContinuation(
+  prev: ExtractedInvoice,
+  cont: ExtractedInvoice,
+  pageNum: number
+): void {
+  prev.lines.push(...cont.lines);
+  prev.pageRange = [...(prev.pageRange ?? []), pageNum];
+  // Los totales suelen aparecer en la última página: rellenan los que falten.
+  if (prev.total == null && cont.total != null) prev.total = cont.total;
+  if (prev.subtotal == null && cont.subtotal != null) prev.subtotal = cont.subtotal;
+  if (prev.totalTax == null && cont.totalTax != null) prev.totalTax = cont.totalTax;
+  if (prev.dueDate == null && cont.dueDate != null) prev.dueDate = cont.dueDate;
+}
+
+export async function extractWithAzureDI(
+  pdfBuffer: Buffer,
+  endpoint: string,
+  apiKey: string
+): Promise<ExtractedInvoice[]> {
+  const client = new DocumentAnalysisClient(
+    endpoint,
+    new AzureKeyCredential(apiKey)
+  );
+
+  // Load the PDF to determine page count
+  const srcDoc = await PDFDocument.load(pdfBuffer);
+  const pageCount = srcDoc.getPageCount();
+
+  const invoices: ExtractedInvoice[] = [];
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Se procesa página a página porque el tier gratuito F0 solo analiza las
+  // 2 primeras páginas de un documento; enviar cada página como PDF de 1 página
+  // permite cubrir bloques de N facturas y además espacia las llamadas (anti-429).
+  for (let i = 1; i <= pageCount; i++) {
+    try {
+      // Free Tier F0 RPM Limit Defense: Delay of 1 second between page processing calls
+      if (i > 1) {
+        await sleep(1000);
+      }
+
+      // Slice the PDF to a single-page buffer
+      const singlePageBuffer = await splitPdfPages(pdfBuffer, [i]);
+
+      const poller = await client.beginAnalyzeDocument(
+        "prebuilt-invoice",
+        singlePageBuffer
+      );
+      const result = await poller.pollUntilDone();
+
+      for (const doc of result.documents ?? []) {
+        const fields = (doc.fields ?? {}) as Record<string, DocumentField>;
+        const confidence = doc.confidence ?? 0.85;
+        const candidate = parseInvoiceDoc(fields, confidence, i);
+
+        const prev = invoices[invoices.length - 1];
+        if (prev && isContinuationOf(candidate, prev)) {
+          // Factura multi-página: anexa líneas y completa totales en la previa.
+          mergeContinuation(prev, candidate, i);
+        } else if (hasInvoiceSignal(candidate)) {
+          invoices.push(candidate);
+        }
+        // Página sin señal y sin factura previa que continuar → se descarta.
+      }
+    } catch (pageErr) {
+      console.error(`Error processing page ${i} with Azure DI:`, pageErr);
+    }
+  }
+
+  // Fallback: if no documents were recognized across all pages, return a generic placeholder invoice representing page 1
+  if (invoices.length === 0) {
+    invoices.push({
+      supplierName: null,
+      supplierVat: null,
+      invoiceNumber: null,
+      invoiceDate: null,
+      dueDate: null,
+      currency: "EUR",
+      subtotal: null,
+      totalTax: null,
+      total: null,
+      lines: [],
+      confidence: 0.5,
+      engine: "azure-di",
+      pageRange: [1],
+    });
+  }
+
+  return invoices;
 }

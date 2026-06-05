@@ -11,7 +11,7 @@ export interface ExtractOptions {
 export async function extractInvoice(
   pdfBuffer: Buffer,
   opts: ExtractOptions
-): Promise<ExtractedInvoice> {
+): Promise<ExtractedInvoice[]> {
   switch (opts.engine) {
     case "azure-di":
       if (!opts.azureDiEndpoint || !opts.azureDiKey) {
