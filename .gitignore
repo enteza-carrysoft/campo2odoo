@@ -5,6 +5,13 @@ node_modules/
 .next/
 out/
 
+# TypeScript build info
+*.tsbuildinfo
+
+# Volcados de depuración de extracción / Odoo
+azure_raw_result.json
+azure_mapped_result.json
+
 # Environment — nunca subir secretos
 .env
 .env.local
