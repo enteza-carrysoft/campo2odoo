@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
       data.odooApiKey
     );
 
-    const result = await importInvoiceToOdoo(client, data);
+    const result = await importInvoiceToOdoo(client, data, data.odooVersion);
     return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Error al importar";

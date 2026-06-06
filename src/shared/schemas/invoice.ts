@@ -27,11 +27,16 @@ export const odooTestSchema = z.object({
   odooApiKey: z.string().min(1),
 });
 
+export const odooMastersSchema = odooTestSchema.extend({
+  odooVersion: z.enum(["15", "18"]).default("18"),
+});
+
 export const importInvoiceSchema = z.object({
   odooUrl: z.string().url(),
   odooDb: z.string().min(1),
   odooUsername: z.string().min(1),
   odooApiKey: z.string().min(1),
+  odooVersion: z.enum(["15", "18"]).default("18"),
   companyId: z.number().int().positive(),
   partnerId: z.number().int().nullable().optional(),
   supplierName: z.string().nullable().optional(),

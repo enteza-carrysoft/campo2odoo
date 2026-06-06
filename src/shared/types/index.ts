@@ -1,10 +1,13 @@
 export type ExtractionEngine = "native" | "azure-di" | "llm";
 
+export type OdooVersion = "15" | "18";
+
 export interface AppConfig {
   odooUrl: string;
   odooDb: string;
   odooUsername: string;
   odooApiKey: string;
+  odooVersion: OdooVersion;
   extractionEngine: ExtractionEngine;
   azureDiEndpoint: string;
   azureDiKey: string;
@@ -31,8 +34,8 @@ export interface OdooAccount {
   id: number;
   code: string;
   name: string;
-  account_type: string;
-  company_ids: number[]; // Many2many in Odoo 17+ — list of company IDs
+  account_type?: string;
+  company_ids: number[];
 }
 
 export interface OdooTax {

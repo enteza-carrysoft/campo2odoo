@@ -1,11 +1,12 @@
-import type { OdooImportResult } from "@/shared/types";
+import type { OdooImportResult, OdooVersion } from "@/shared/types";
 import type { ImportInvoiceInput } from "@/shared/schemas/invoice";
 import { OdooClient } from "./client";
 import { matchPartner, isAutoAssignable } from "./partner-match";
 
 export async function importInvoiceToOdoo(
   client: OdooClient,
-  data: ImportInvoiceInput
+  data: ImportInvoiceInput,
+  version: OdooVersion = "18"
 ): Promise<OdooImportResult> {
   // Build invoice line commands (Odoo ORM command 0 = create)
   const invoiceLineIds = data.lines.map((line) => [
@@ -102,10 +103,9 @@ export async function importInvoiceToOdoo(
 
   const moveName = move?.name ?? `ID ${moveId}`;
   const baseUrl = data.odooUrl.replace(/\/$/, "");
-  // Odoo 18 path-based routing. The /odoo/vendor-bills/{id} route requires the
-  // Purchase module (adds purchase_order_name to the form view).
-  // With Accounting-only, the correct route is /odoo/accounting/vendor-bills/{id}.
-  const url = `${baseUrl}/odoo/accounting/vendor-bills/${moveId}`;
+  const url = version === "15"
+    ? `${baseUrl}/web#model=account.move&id=${moveId}&view_type=form`
+    : `${baseUrl}/odoo/accounting/vendor-bills/${moveId}`;
 
   return { moveId, moveName, url };
 }

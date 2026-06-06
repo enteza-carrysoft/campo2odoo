@@ -65,6 +65,7 @@ export function ConfigPanel({ config, onChange, onMastersLoaded, masters }: Prop
           odooDb: config.odooDb,
           odooUsername: config.odooUsername,
           odooApiKey: config.odooApiKey,
+          odooVersion: config.odooVersion,
         }),
       });
       const data = await res.json();
@@ -148,6 +149,25 @@ export function ConfigPanel({ config, onChange, onMastersLoaded, masters }: Prop
             className={cx.input}
           />
         </Field>
+      </div>
+
+      {/* Versión de Odoo */}
+      <div>
+        <p className="text-xs font-medium text-gray-600 uppercase tracking-wide mb-2">Versión de Odoo</p>
+        <div className="flex gap-2">
+          {([["15", "Odoo 15 Community/Enterprise"], ["18", "Odoo 16 / 17 / 18"]] as const).map(([v, label]) => (
+            <button
+              key={v}
+              onClick={() => set("odooVersion", v)}
+              className={`px-4 py-2 rounded-lg border text-sm transition-colors
+                ${config.odooVersion === v
+                  ? "bg-sky-50 border-sky-400 text-sky-700 font-medium"
+                  : "border-gray-200 text-gray-600 hover:border-gray-300"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-3 items-center">
