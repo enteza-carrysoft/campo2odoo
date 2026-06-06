@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { InvoiceFile, OdooMasters, ExtractedLine } from "@/shared/types";
 import { cx } from "@/shared/styles";
 import {
@@ -558,11 +559,18 @@ function PartnerCombobox({
 }) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Close when clicking outside both the input and the portaled dropdown
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        inputRef.current && !inputRef.current.contains(target) &&
+        dropdownRef.current && !dropdownRef.current.contains(target)
+      ) {
         setOpen(false);
         setQuery("");
       }
@@ -571,43 +579,44 @@ function PartnerCombobox({
     return () => document.removeEventListener("mousedown", onMouseDown);
   }, []);
 
+  function openDropdown() {
+    if (inputRef.current) {
+      const rect = inputRef.current.getBoundingClientRect();
+      setPos({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: Math.max(rect.width, 288),
+      });
+    }
+    setQuery("");
+    setOpen(true);
+  }
+
   const selectedPartner = value ? partners.find((p) => p.id === value) : null;
+  const isCreateNew = value === null;
 
   const filtered = query.trim().length === 0
     ? partners.slice(0, 60)
     : partners
         .filter((p) => {
           const q = query.toLowerCase();
-          return (
-            p.name.toLowerCase().includes(q) ||
-            (p.vat ?? "").toLowerCase().includes(q)
-          );
+          return p.name.toLowerCase().includes(q) || (p.vat || "").toString().toLowerCase().includes(q);
         })
         .slice(0, 60);
 
-  const isCreateNew = value === null;
-
-  return (
-    <div ref={containerRef} className="relative">
-      <input
-        type="text"
-        value={open ? query : (selectedPartner?.name ?? "")}
-        placeholder={isCreateNew ? `🆕 ${supplierName || "Crear nuevo"}` : ""}
-        className={`${cx.input} text-xs w-full ${isCreateNew ? "text-amber-700 bg-amber-50 border-amber-300 font-medium" : ""}`}
-        onFocus={() => { setQuery(""); setOpen(true); }}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-        onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
-      />
-      {open && (
-        <div className="absolute z-50 left-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-          {/* Crear nuevo */}
+  const dropdown = open && typeof document !== "undefined"
+    ? createPortal(
+        <div
+          ref={dropdownRef}
+          style={{ position: "fixed", top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}
+          className="bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto"
+        >
           <div
             onMouseDown={(e) => { e.preventDefault(); onChange(null); setOpen(false); setQuery(""); }}
             className="px-3 py-2 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 cursor-pointer border-b border-amber-200 sticky top-0"
           >
             🆕 Crear nuevo: {supplierName || "Proveedor nuevo"}
           </div>
-          {/* Lista filtrada */}
           {filtered.length === 0 ? (
             <div className="px-3 py-2 text-xs text-gray-400 italic">Sin resultados</div>
           ) : (
@@ -618,13 +627,29 @@ function PartnerCombobox({
                 className={`px-3 py-2 text-xs cursor-pointer hover:bg-sky-50 flex justify-between gap-2 ${value === p.id ? "bg-sky-50 font-medium text-sky-700" : "text-gray-700"}`}
               >
                 <span className="truncate">{p.name}</span>
-                {p.vat && <span className="text-gray-400 shrink-0">{p.vat}</span>}
+                {p.vat && typeof p.vat === "string" && <span className="text-gray-400 shrink-0">{p.vat}</span>}
               </div>
             ))
           )}
-        </div>
-      )}
-    </div>
+        </div>,
+        document.body
+      )
+    : null;
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="text"
+        value={open ? query : (selectedPartner?.name ?? "")}
+        placeholder={isCreateNew ? `🆕 ${supplierName || "Crear nuevo"}` : ""}
+        className={`${cx.input} text-xs w-full ${isCreateNew ? "text-amber-700 bg-amber-50 border-amber-300 font-medium" : ""}`}
+        onFocus={openDropdown}
+        onChange={(e) => { setQuery(e.target.value); if (!open) openDropdown(); }}
+        onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
+      />
+      {dropdown}
+    </>
   );
 }
 
