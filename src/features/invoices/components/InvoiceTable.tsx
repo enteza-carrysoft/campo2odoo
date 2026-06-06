@@ -17,6 +17,7 @@ import {
   Plus,
   ChevronsDownUp,
   ChevronsUpDown,
+  Layers,
 } from "lucide-react";
 
 interface Props {
@@ -29,11 +30,12 @@ interface Props {
   journalMap: Record<string, number>;
   accountMap: Record<string, number>;
   taxMap: Record<string, number>;
+  extractionEngine: string;
 }
 
-const COLS = 11; // total columns in thead
+const COLS = 12; // total columns in thead
 
-export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, onSelect, journalMap, accountMap, taxMap }: Props) {
+export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, onSelect, journalMap, accountMap, taxMap, extractionEngine }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -141,6 +143,9 @@ export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, 
             </th>
             <th className="px-3 py-3 w-6" />
             <th className="px-3 py-3 text-left">Archivo</th>
+            <th className="px-3 py-3 text-center w-10" title="PDF completo: envía el PDF sin dividir por páginas a Azure DI">
+              <Layers size={13} className="inline text-gray-400" />
+            </th>
             <th className="px-3 py-3 text-left">Empresa</th>
             <th className="px-3 py-3 text-left">Proveedor</th>
             <th className="px-3 py-3 text-left">Nº Factura</th>
@@ -185,6 +190,21 @@ export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, 
                   )}
                 </td>
                 <td className="px-3 py-3 font-medium text-gray-700 max-w-48 truncate">{inv.name}</td>
+                {/* No split */}
+                <td className="px-3 py-3 text-center">
+                  {extractionEngine === "azure-di" ? (
+                    <input
+                      type="checkbox"
+                      checked={inv.noSplit ?? false}
+                      title="Enviar PDF completo sin dividir por páginas"
+                      onClick={(e) => e.stopPropagation()}
+                      onChange={(e) => onChange(inv.id, { noSplit: e.target.checked })}
+                      className="w-3.5 h-3.5 accent-sky-600 cursor-pointer"
+                    />
+                  ) : (
+                    <span className="text-gray-200">—</span>
+                  )}
+                </td>
                 {/* Empresa */}
                 <td className="px-3 py-3">
                   <select

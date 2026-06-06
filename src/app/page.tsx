@@ -310,6 +310,7 @@ export default function Home() {
           lines: [],
           selectedForImport: false,
           importStatus: "idle" as const,
+          noSplit: false,
         };
       })
     );
@@ -340,6 +341,7 @@ export default function Home() {
           formData.append("azureDiEndpoint", config.azureDiEndpoint);
         if (config.azureDiKey)
           formData.append("azureDiKey", config.azureDiKey);
+        formData.append("noSplit", String(inv.noSplit ?? false));
 
         const res = await fetch("/api/extract", {
           method: "POST",
@@ -395,6 +397,7 @@ export default function Home() {
             }),
             selectedForImport: true,
             importStatus: "idle" as const,
+            noSplit: false,
           };
         });
 
@@ -730,6 +733,7 @@ export default function Home() {
                       journalMap={config.defaultJournalMap}
                       accountMap={config.defaultAccountMap}
                       taxMap={config.defaultTaxMap}
+                      extractionEngine={config.extractionEngine}
                     />
                   </div>
 

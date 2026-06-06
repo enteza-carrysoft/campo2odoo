@@ -6,6 +6,7 @@ export interface ExtractOptions {
   engine: ExtractionEngine;
   azureDiEndpoint?: string;
   azureDiKey?: string;
+  noSplit?: boolean;
 }
 
 export async function extractInvoice(
@@ -22,7 +23,8 @@ export async function extractInvoice(
       return extractWithAzureDI(
         pdfBuffer,
         opts.azureDiEndpoint,
-        opts.azureDiKey
+        opts.azureDiKey,
+        opts.noSplit ?? false
       );
 
     case "llm":

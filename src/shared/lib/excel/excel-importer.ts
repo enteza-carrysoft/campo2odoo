@@ -197,6 +197,7 @@ export function buildInvoicesFromExcelRows(
         lines: [],
         selectedForImport: true,
         importStatus: 'idle',
+        noSplit: false,
         extracted: {
           supplierName: row.supplierName,
           supplierVat: row.supplierVat,

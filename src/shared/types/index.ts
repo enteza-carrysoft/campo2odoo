@@ -117,6 +117,8 @@ export interface InvoiceFile {
   selectedForImport: boolean;
   importStatus: ImportStatus;
   importResult?: OdooImportResult;
+  // When true, the full PDF is sent to Azure DI as-is (no page-by-page split).
+  noSplit: boolean;
 }
 
 export interface OdooImportResult {

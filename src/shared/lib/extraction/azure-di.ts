@@ -249,55 +249,64 @@ function mergeContinuation(
 export async function extractWithAzureDI(
   pdfBuffer: Buffer,
   endpoint: string,
-  apiKey: string
+  apiKey: string,
+  noSplit: boolean = false
 ): Promise<ExtractedInvoice[]> {
   const client = new DocumentAnalysisClient(
     endpoint,
     new AzureKeyCredential(apiKey)
   );
 
-  // Load the PDF to determine page count
-  const srcDoc = await PDFDocument.load(pdfBuffer);
-  const pageCount = srcDoc.getPageCount();
-
   const invoices: ExtractedInvoice[] = [];
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  // Se procesa página a página porque el tier gratuito F0 solo analiza las
-  // 2 primeras páginas de un documento; enviar cada página como PDF de 1 página
-  // permite cubrir bloques de N facturas y además espacia las llamadas (anti-429).
-  for (let i = 1; i <= pageCount; i++) {
-    try {
-      // Free Tier F0 RPM Limit Defense: Delay of 1 second between page processing calls
-      if (i > 1) {
-        await sleep(1000);
+  if (noSplit) {
+    // Modo sin split: envía el PDF completo a Azure DI en una sola llamada.
+    // Útil para PDFs con muchas páginas donde la división por página pierde contexto.
+    const poller = await client.beginAnalyzeDocument("prebuilt-invoice", pdfBuffer);
+    const result = await poller.pollUntilDone();
+
+    for (const doc of result.documents ?? []) {
+      const fields = (doc.fields ?? {}) as Record<string, DocumentField>;
+      const confidence = doc.confidence ?? 0.85;
+      const candidate = parseInvoiceDoc(fields, confidence, 1);
+      if (hasInvoiceSignal(candidate)) {
+        // pageRange reflects all pages of the PDF
+        const srcDoc = await PDFDocument.load(pdfBuffer);
+        candidate.pageRange = Array.from({ length: srcDoc.getPageCount() }, (_, i) => i + 1);
+        invoices.push(candidate);
       }
+    }
+  } else {
+    // Modo normal (por defecto): página a página.
+    // El tier F0 solo analiza las 2 primeras páginas de un documento;
+    // enviar cada página como PDF de 1 página cubre PDFs de N facturas.
+    const srcDoc = await PDFDocument.load(pdfBuffer);
+    const pageCount = srcDoc.getPageCount();
 
-      // Slice the PDF to a single-page buffer
-      const singlePageBuffer = await splitPdfPages(pdfBuffer, [i]);
+    for (let i = 1; i <= pageCount; i++) {
+      try {
+        if (i > 1) await sleep(1000);
 
-      const poller = await client.beginAnalyzeDocument(
-        "prebuilt-invoice",
-        singlePageBuffer
-      );
-      const result = await poller.pollUntilDone();
+        const singlePageBuffer = await splitPdfPages(pdfBuffer, [i]);
+        const poller = await client.beginAnalyzeDocument("prebuilt-invoice", singlePageBuffer);
+        const result = await poller.pollUntilDone();
 
-      for (const doc of result.documents ?? []) {
-        const fields = (doc.fields ?? {}) as Record<string, DocumentField>;
-        const confidence = doc.confidence ?? 0.85;
-        const candidate = parseInvoiceDoc(fields, confidence, i);
+        for (const doc of result.documents ?? []) {
+          const fields = (doc.fields ?? {}) as Record<string, DocumentField>;
+          const confidence = doc.confidence ?? 0.85;
+          const candidate = parseInvoiceDoc(fields, confidence, i);
 
-        const prev = invoices[invoices.length - 1];
-        if (prev && isContinuationOf(candidate, prev)) {
-          // Factura multi-página: anexa líneas y completa totales en la previa.
-          mergeContinuation(prev, candidate, i);
-        } else if (hasInvoiceSignal(candidate)) {
-          invoices.push(candidate);
+          const prev = invoices[invoices.length - 1];
+          if (prev && isContinuationOf(candidate, prev)) {
+            mergeContinuation(prev, candidate, i);
+          } else if (hasInvoiceSignal(candidate)) {
+            invoices.push(candidate);
+          }
         }
-        // Página sin señal y sin factura previa que continuar → se descarta.
+      } catch (pageErr) {
+        console.error(`Error processing page ${i} with Azure DI:`, pageErr);
       }
-    } catch (pageErr) {
-      console.error(`Error processing page ${i} with Azure DI:`, pageErr);
     }
   }
 

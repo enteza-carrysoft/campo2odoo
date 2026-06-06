@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     const engine = (formData.get("engine") as ExtractionEngine) ?? "native";
     const azureDiEndpoint = formData.get("azureDiEndpoint") as string | null;
     const azureDiKey = formData.get("azureDiKey") as string | null;
+    const noSplit = formData.get("noSplit") === "true";
 
     if (!file) {
       return NextResponse.json({ error: "No se ha enviado ningún archivo" }, { status: 400 });
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
       engine,
       azureDiEndpoint: azureDiEndpoint ?? undefined,
       azureDiKey: azureDiKey ?? undefined,
+      noSplit,
     });
 
     const results = await Promise.all(
