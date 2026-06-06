@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { InvoiceFile, OdooMasters, ExtractedLine } from "@/shared/types";
 import { cx } from "@/shared/styles";
 import {
@@ -218,22 +218,16 @@ export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, 
                 {/* Proveedor */}
                 <td className="px-3 py-3">
                   {inv.status === "extracted" ? (
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1" onClick={(e) => e.stopPropagation()}>
                       {inv.extracted?.supplierName && (
                         <span className="text-xs text-gray-400 truncate max-w-48">{inv.extracted.supplierName}</span>
                       )}
-                      <select
-                        value={inv.partnerId ?? "create_new"}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => onChange(inv.id, { partnerId: e.target.value === "create_new" ? null : Number(e.target.value) })}
-                        className={`${cx.select} text-xs ${!inv.partnerId ? "text-amber-700 bg-amber-50 border-amber-300 font-medium" : ""}`}
-                      >
-                        <option value="create_new">🆕 Crear nuevo: {inv.extracted?.supplierName || "Proveedor nuevo"}</option>
-                        <option value="">— Seleccionar existente —</option>
-                        {(masters?.partners ?? []).map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}{p.vat ? ` (${p.vat})` : ""}</option>
-                        ))}
-                      </select>
+                      <PartnerCombobox
+                        partners={masters?.partners ?? []}
+                        value={inv.partnerId}
+                        supplierName={inv.extracted?.supplierName}
+                        onChange={(id) => onChange(inv.id, { partnerId: id })}
+                      />
                     </div>
                   ) : <span className="text-gray-400">—</span>}
                 </td>
@@ -530,6 +524,89 @@ export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, 
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
+
+function PartnerCombobox({
+  partners,
+  value,
+  supplierName,
+  onChange,
+}: {
+  partners: import("@/shared/types").OdooPartner[];
+  value: number | null;
+  supplierName: string | null | undefined;
+  onChange: (id: number | null) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, []);
+
+  const selectedPartner = value ? partners.find((p) => p.id === value) : null;
+
+  const filtered = query.trim().length === 0
+    ? partners.slice(0, 60)
+    : partners
+        .filter((p) => {
+          const q = query.toLowerCase();
+          return (
+            p.name.toLowerCase().includes(q) ||
+            (p.vat ?? "").toLowerCase().includes(q)
+          );
+        })
+        .slice(0, 60);
+
+  const isCreateNew = value === null;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        type="text"
+        value={open ? query : (selectedPartner?.name ?? "")}
+        placeholder={isCreateNew ? `🆕 ${supplierName || "Crear nuevo"}` : ""}
+        className={`${cx.input} text-xs w-full ${isCreateNew ? "text-amber-700 bg-amber-50 border-amber-300 font-medium" : ""}`}
+        onFocus={() => { setQuery(""); setOpen(true); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onKeyDown={(e) => { if (e.key === "Escape") { setOpen(false); setQuery(""); } }}
+      />
+      {open && (
+        <div className="absolute z-50 left-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+          {/* Crear nuevo */}
+          <div
+            onMouseDown={(e) => { e.preventDefault(); onChange(null); setOpen(false); setQuery(""); }}
+            className="px-3 py-2 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 cursor-pointer border-b border-amber-200 sticky top-0"
+          >
+            🆕 Crear nuevo: {supplierName || "Proveedor nuevo"}
+          </div>
+          {/* Lista filtrada */}
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-gray-400 italic">Sin resultados</div>
+          ) : (
+            filtered.map((p) => (
+              <div
+                key={p.id}
+                onMouseDown={(e) => { e.preventDefault(); onChange(p.id); setOpen(false); setQuery(""); }}
+                className={`px-3 py-2 text-xs cursor-pointer hover:bg-sky-50 flex justify-between gap-2 ${value === p.id ? "bg-sky-50 font-medium text-sky-700" : "text-gray-700"}`}
+              >
+                <span className="truncate">{p.name}</span>
+                {p.vat && <span className="text-gray-400 shrink-0">{p.vat}</span>}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function HeaderField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
