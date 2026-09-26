@@ -32,7 +32,7 @@ export async function fetchMasters(client: OdooClient, version: OdooVersion = "1
   const companies = await client.searchRead<OdooCompany>(
     "res.company",
     [],
-    ["id", "name"],
+    ["id", "name", "vat"],
     { order: "name asc", ...ES }
   );
 

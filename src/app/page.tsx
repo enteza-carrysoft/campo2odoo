@@ -1,14 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send, Zap, FileSpreadsheet, RefreshCw } from "lucide-react";
-import { cx } from "@/shared/styles";
-import type { AppConfig, InvoiceFile, OdooMasters } from "@/shared/types";
+import { PanelLeftOpen, UploadCloud } from "lucide-react";
+import type { AppConfig, ExtractedInvoice, InvoiceFile, OdooMasters } from "@/shared/types";
+import { AppSidebar, type AppView } from "@/shared/components/AppSidebar";
 import { ConfigPanel } from "@/features/config/components/ConfigPanel";
-import { UploadZone } from "@/features/invoices/components/UploadZone";
 import { InvoiceTable } from "@/features/invoices/components/InvoiceTable";
 import { PdfViewer } from "@/features/invoices/components/PdfViewer";
-import { matchPartner, isAutoAssignable } from "@/shared/lib/odoo/partner-match";
+import { InvoiceToolbar } from "@/features/invoices/components/InvoiceToolbar";
+import { BulkUploadPanel } from "@/features/invoices/components/BulkUploadPanel";
+import { PdfDropTarget } from "@/features/invoices/components/PdfDropTarget";
+import { invoiceFromExtraction, ownTaxIds } from "@/features/invoices/lib/from-extraction";
 
 const uuid = () => crypto.randomUUID();
 
@@ -28,6 +30,18 @@ const DEFAULT_CONFIG: AppConfig = {
 };
 
 const CONFIG_KEY = "campo2odoo_config";
+const SIDEBAR_KEY = "campo2odoo_sidebar_collapsed";
+
+const ENGINE_LABELS: Record<string, string> = {
+  native: "Texto nativo (pdf-parse)",
+  "azure-di": "Azure Document Intelligence",
+};
+
+const VIEW_TITLES: Record<AppView, string> = {
+  config: "Configuración",
+  review: "Facturas · Revisión",
+  bulk: "Facturas · Carga masiva",
+};
 
 function readConfigFromStorage(): AppConfig {
   if (typeof window === "undefined") return DEFAULT_CONFIG;
@@ -52,36 +66,15 @@ function fileToBase64(file: File): Promise<string> {
   });
 }
 
-function formatSplitName(originalName: string, pageRange?: number[]): string {
-  if (!pageRange || pageRange.length === 0) return originalName;
-  const extIndex = originalName.lastIndexOf(".");
-  let nameWithoutExt = originalName;
-  let ext = "";
-  if (extIndex !== -1 && extIndex > 0) {
-    nameWithoutExt = originalName.substring(0, extIndex);
-    ext = originalName.substring(extIndex);
-  }
-
-  if (pageRange.length === 1) {
-    return `${nameWithoutExt} (Pág. ${pageRange[0]})${ext}`;
-  }
-  const min = Math.min(...pageRange);
-  const max = Math.max(...pageRange);
-  if (min === max) {
-    return `${nameWithoutExt} (Pág. ${min})${ext}`;
-  }
-  return `${nameWithoutExt} (Págs. ${min}-${max})${ext}`;
-}
-
 export default function Home() {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [masters, setMasters] = useState<OdooMasters | null>(null);
+  const [serverSecrets, setServerSecrets] = useState({ odooApiKey: false, azureDiKey: false });
   const [invoices, setInvoices] = useState<InvoiceFile[]>([]);
   const [importing, setImporting] = useState(false);
-  const [activeTab, setActiveTab] = useState<"config" | "facturas">("config");
+  const [view, setView] = useState<AppView>("config");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeInvoiceId, setActiveInvoiceId] = useState<string | null>(null);
-  const excelInputRef = useRef<HTMLInputElement>(null);
-  const [importingExcel, setImportingExcel] = useState(false);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [viewerWidth, setViewerWidth] = useState(420);
   const [refreshingPartners, setRefreshingPartners] = useState(false);
@@ -118,11 +111,7 @@ export default function Home() {
     }
   }
 
-  async function handleExcelUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setImportingExcel(true);
+  async function handleExcelUpload(file: File) {
     try {
       const formData = new FormData();
       formData.append("file", file);
@@ -142,13 +131,11 @@ export default function Home() {
         setInvoices((prev) => [...prev, ...data.invoices]);
         if (data.invoices.length > 0) {
           setActiveInvoiceId(data.invoices[0].id);
+          setView("review");
         }
       }
     } catch (err) {
       alert(err instanceof Error ? err.message : "Error al procesar el archivo Excel");
-    } finally {
-      setImportingExcel(false);
-      if (excelInputRef.current) excelInputRef.current.value = "";
     }
   }
 
@@ -158,7 +145,8 @@ export default function Home() {
 
     fetch("/api/config")
       .then((r) => r.json())
-      .then((envConfig: Partial<AppConfig>) => {
+      .then(({ serverSecrets: secrets, ...envConfig }: Partial<AppConfig> & { serverSecrets?: typeof serverSecrets }) => {
+        if (secrets) setServerSecrets(secrets);
         // Fields from env override blank fields; user edits in localStorage win over defaults
         const merged: AppConfig = { ...stored };
 
@@ -186,7 +174,7 @@ export default function Home() {
         // Auto-select Azure DI if both credentials are present and engine is still default
         if (
           merged.azureDiEndpoint &&
-          merged.azureDiKey &&
+          (merged.azureDiKey || secrets?.azureDiKey) &&
           merged.extractionEngine === "native" &&
           stored.extractionEngine === "native"
         ) {
@@ -200,6 +188,22 @@ export default function Home() {
         setConfig(stored);
       });
   }, []);
+
+  // Preferencia de menú lateral (solo comodidad local: si falla el storage, se ignora)
+  useEffect(() => {
+    try {
+      setSidebarCollapsed(localStorage.getItem(SIDEBAR_KEY) === "1");
+    } catch {}
+  }, []);
+
+  function toggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      try {
+        localStorage.setItem(SIDEBAR_KEY, prev ? "0" : "1");
+      } catch {}
+      return !prev;
+    });
+  }
 
   // Persist config to localStorage on change
   useEffect(() => {
@@ -342,6 +346,7 @@ export default function Home() {
         if (config.azureDiKey)
           formData.append("azureDiKey", config.azureDiKey);
         formData.append("noSplit", String(inv.noSplit ?? false));
+        formData.append("ownTaxIds", JSON.stringify(ownTaxIds(masters)));
 
         const res = await fetch("/api/extract", {
           method: "POST",
@@ -355,51 +360,10 @@ export default function Home() {
           throw new Error("La respuesta del servidor no tiene el formato esperado (array)");
         }
 
-        const splitInvoices: InvoiceFile[] = data.map((item: any) => {
-          const { extracted, dataBase64 } = item;
-          const formattedName = formatSplitName(inv.name, extracted.pageRange);
-          const approximateSize = Math.round((dataBase64.length * 3) / 4);
-
-          // Auto-relacionar el proveedor extraído con un proveedor de Odoo.
-          // Solo se asigna cuando la confianza es alta (VAT / nombre exacto / fuerte)
-          // para no asignar un proveedor equivocado; los casos dudosos quedan sin
-          // asignar y el usuario elige en la tabla.
-          let matchedPartnerId: number | null = null;
-          if (masters?.partners?.length && (extracted.supplierName || extracted.supplierVat)) {
-            const match = matchPartner(masters.partners, {
-              name: extracted.supplierName,
-              vat: extracted.supplierVat,
-            });
-            if (match && isAutoAssignable(match.confidence)) {
-              matchedPartnerId = match.partner.id;
-            }
-          }
-
-          return {
-            id: uuid(),
-            name: formattedName,
-            size: approximateSize,
-            dataBase64,
-            status: "extracted" as const,
-            extracted,
-            companyId: inv.companyId ?? masters?.companyId ?? null,
-            partnerId: matchedPartnerId,
-            journalId: inv.journalId ?? journalForCompany(inv.companyId ?? masters?.companyId ?? null),
-            lines: (extracted.lines ?? []).map((line: import("@/shared/types").ExtractedLine) => {
-              const cId = String(inv.companyId ?? masters?.companyId ?? "");
-              const defAccount = config.defaultAccountMap[cId] ?? null;
-              const defTax = config.defaultTaxMap[cId] ?? null;
-              return {
-                ...line,
-                accountId: line.accountId ?? defAccount,
-                taxIds: line.taxIds.length > 0 ? line.taxIds : (defTax ? [defTax] : []),
-              };
-            }),
-            selectedForImport: true,
-            importStatus: "idle" as const,
-            noSplit: false,
-          };
-        });
+        const splitInvoices: InvoiceFile[] = data.map(
+          (item: { extracted: ExtractedInvoice; dataBase64: string }) =>
+            invoiceFromExtraction({ source: inv, extracted: item.extracted, dataBase64: item.dataBase64, masters, config })
+        );
 
         // Replace the original invoice in the invoices state with the split invoices
         setInvoices((prev) => {
@@ -510,262 +474,171 @@ export default function Home() {
     setImporting(false);
   }
 
-  const pendingCount = invoices.filter((i) => i.status === "pending").length;
+  const pendingInvoices = invoices.filter((i) => i.status === "pending");
+  const pendingCount = pendingInvoices.length;
   const extractedCount = invoices.filter((i) => i.status === "extracted").length;
   const selectedCount = invoices.filter(
     (i) => i.selectedForImport && i.status === "extracted"
   ).length;
 
+  function extractAndReview() {
+    setView("review");
+    handleExtract();
+  }
+
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-sky-600 flex items-center justify-center">
-            <Zap size={18} className="text-white" />
-          </div>
-          <span className="font-bold text-gray-800 text-lg">Campo2Odoo</span>
-          <span className="text-gray-400 text-sm hidden sm:block">
-            Facturas PDF → Odoo 18
-          </span>
-        </div>
-        {invoices.length > 0 && (
-          <div className="text-xs text-gray-400">
-            {invoices.length} archivo(s) · {extractedCount} extraído(s)
-          </div>
-        )}
-      </header>
+    <div className="min-h-screen flex bg-gray-50">
+      <AppSidebar
+        view={view}
+        onNavigate={setView}
+        collapsed={sidebarCollapsed}
+        onToggle={toggleSidebar}
+        invoiceCount={invoices.length}
+        pendingCount={pendingCount}
+        odooVersion={config.odooVersion}
+      />
 
-      {/* Tabs */}
-      <div className="bg-white border-b border-gray-200 px-6">
-        <nav className="flex gap-1">
-          {(
-            [
-              { id: "config", label: "Configuración" },
-              { id: "facturas", label: "Facturas" },
-            ] as const
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors
-                ${
-                  activeTab === tab.id
-                    ? "border-sky-500 text-sky-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700"
-                }
-              `}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Content */}
-      <main className={`flex-1 p-6 w-full ${activeTab === "config" ? "max-w-7xl mx-auto" : ""}`}>
-        {activeTab === "config" && (
-          <div className="max-w-3xl">
-            <ConfigPanel
-              config={config}
-              onChange={setConfig}
-              onMastersLoaded={setMasters}
-              masters={masters}
-            />
-            {masters && (
-              <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-100 text-sm text-green-700">
-                ✓ Maestros cargados. Puedes ir a la pestaña{" "}
-                <button
-                  onClick={() => setActiveTab("facturas")}
-                  className="font-medium underline"
-                >
-                  Facturas
-                </button>{" "}
-                para subir PDFs.
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === "facturas" && (
-          <div className="space-y-4">
-            {!masters && (
-              <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-                ⚠ Carga los maestros de Odoo en{" "}
-                <button
-                  onClick={() => setActiveTab("config")}
-                  className="font-medium underline"
-                >
-                  Configuración
-                </button>{" "}
-                para poder asignar proveedores, diarios y cuentas.
-              </div>
-            )}
-
-            {/* Upload zones */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="md:col-span-2">
-                <UploadZone onFiles={handleFiles} />
-              </div>
-              <div
-                onClick={() => !importingExcel && excelInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-colors relative
-                  ${importingExcel ? "border-gray-100 bg-gray-50/50 pointer-events-none" : "border-gray-200 hover:border-sky-300 hover:bg-gray-50/50"}
-                `}
+      <div className="flex-1 min-w-0 flex flex-col">
+        <header className="h-14 shrink-0 bg-white border-b border-gray-200 px-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {sidebarCollapsed && (
+              <button
+                onClick={toggleSidebar}
+                title="Mostrar menú"
+                className="p-1.5 -ml-2 rounded-lg text-gray-500 hover:text-gray-800 hover:bg-gray-100"
               >
-                <input
-                  ref={excelInputRef}
-                  type="file"
-                  accept=".xlsx"
-                  className="hidden"
-                  onChange={handleExcelUpload}
-                  disabled={importingExcel}
-                />
-                {importingExcel ? (
-                  <Loader2 size={32} className="animate-spin text-sky-500 mb-2" />
-                ) : (
-                  <FileSpreadsheet size={32} className="text-gray-400 mb-2" />
-                )}
-                <div>
-                  <p className="text-sm font-semibold text-gray-700">Importar desde Excel</p>
-                  <p className="text-xs text-gray-400 mt-1 max-w-[200px] mx-auto">
-                    {importingExcel ? "Procesando filas..." : "Carga la plantilla excel con facturas de proveedor"}
+                <PanelLeftOpen size={18} />
+              </button>
+            )}
+            <h1 className="font-semibold text-gray-800">{VIEW_TITLES[view]}</h1>
+          </div>
+          {invoices.length > 0 && (
+            <div className="text-xs text-gray-400">
+              {invoices.length} archivo(s) · {extractedCount} extraído(s)
+            </div>
+          )}
+        </header>
+
+        <main className="flex-1 p-6">
+          {view !== "config" && !masters && (
+            <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+              ⚠ Carga los maestros de Odoo en{" "}
+              <button onClick={() => setView("config")} className="font-medium underline">
+                Configuración
+              </button>{" "}
+              para poder asignar proveedores, diarios y cuentas.
+            </div>
+          )}
+
+          {view === "config" && (
+            <div>
+              <ConfigPanel
+                config={config}
+                onChange={setConfig}
+                onMastersLoaded={setMasters}
+                masters={masters}
+                serverSecrets={serverSecrets}
+              />
+              {masters && (
+                <div className="mt-4 p-4 bg-green-50 rounded-lg border border-green-100 text-sm text-green-700">
+                  ✓ Maestros cargados. Ve a{" "}
+                  <button onClick={() => setView("bulk")} className="font-medium underline">
+                    Carga masiva
+                  </button>{" "}
+                  para subir PDF o la plantilla Excel.
+                </div>
+              )}
+            </div>
+          )}
+
+          {view === "bulk" && (
+            <BulkUploadPanel
+              pending={pendingInvoices}
+              engineLabel={ENGINE_LABELS[config.extractionEngine] ?? config.extractionEngine}
+              onPdfFiles={handleFiles}
+              onExcelFile={handleExcelUpload}
+              onRemove={deleteInvoice}
+              onExtract={extractAndReview}
+              onOpenConfig={() => setView("config")}
+            />
+          )}
+
+          {view === "review" && (
+            <PdfDropTarget onFiles={handleFiles}>
+              {invoices.length === 0 ? (
+                <div className="border-2 border-dashed border-gray-200 rounded-xl py-16 flex flex-col items-center text-center text-gray-400">
+                  <UploadCloud size={36} className="mb-3" />
+                  <p className="text-base font-medium text-gray-600">Aún no hay facturas</p>
+                  <p className="text-sm mt-1">
+                    Suelta PDF aquí o usa{" "}
+                    <button onClick={() => setView("bulk")} className="underline hover:text-gray-600">
+                      Carga masiva
+                    </button>{" "}
+                    para PDF y Excel.
                   </p>
                 </div>
-              </div>
-            </div>
-
-            {invoices.length > 0 && (
-              <>
-                {/* Mass company selector */}
-                {masters && invoices.some((i) => i.status === "extracted" || i.status === "pending") && (
-                  <div className="flex items-center gap-2 p-3 bg-sky-50 border border-sky-100 rounded-lg">
-                    <span className="text-xs font-medium text-sky-700 shrink-0">Aplicar empresa a todas:</span>
-                    <select
-                      defaultValue=""
-                      onChange={(e) => { if (e.target.value) { handleMassCompany(Number(e.target.value)); e.target.value = ""; } }}
-                      className="text-xs border border-sky-200 rounded-md px-2 py-1.5 bg-white text-gray-700 focus:outline-none focus:ring-1 focus:ring-sky-400"
-                    >
-                      <option value="">— Seleccionar empresa —</option>
-                      {masters.companies.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                    <span className="text-xs text-sky-500">También asigna el diario por defecto de cada empresa.</span>
-                  </div>
-                )}
-
-                {/* Action bar */}
-                <div className="flex flex-wrap gap-3 items-center justify-between">
-                  <div className="flex gap-3 flex-wrap">
-                    {pendingCount > 0 && (
-                      <button onClick={handleExtract} className={cx.btnOutline}>
-                        <Zap size={16} className="mr-1" />
-                        Extraer información ({pendingCount})
-                      </button>
-                    )}
-                    {selectedCount > 0 && (
-                      <button
-                        onClick={handleImport}
-                        disabled={importing}
-                        className={cx.btnPrimary}
-                      >
-                        {importing ? (
-                          <Loader2 size={16} className="animate-spin mr-1" />
-                        ) : (
-                          <Send size={16} className="mr-1" />
-                        )}
-                        Crear borradores en Odoo ({selectedCount})
-                      </button>
-                    )}
-                    <button
-                      onClick={handleExcelExport}
-                      disabled={exportingExcel}
-                      className={cx.btnOutline}
-                    >
-                      {exportingExcel ? (
-                        <Loader2 size={16} className="animate-spin mr-1" />
-                      ) : (
-                        <FileSpreadsheet size={16} className="mr-1" />
-                      )}
-                      Exportar a Excel
-                    </button>
-                    {masters && (
-                      <button
-                        onClick={handleRefreshPartners}
-                        disabled={refreshingPartners}
-                        className={cx.btnOutline}
-                        title="Recarga la lista de proveedores desde Odoo"
-                      >
-                        {refreshingPartners ? (
-                          <Loader2 size={16} className="animate-spin mr-1" />
-                        ) : (
-                          <RefreshCw size={16} className="mr-1" />
-                        )}
-                        Actualizar proveedores
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      setInvoices((prev) =>
-                        prev.filter((i) => i.importStatus !== "success")
-                      );
+              ) : (
+                <div className="space-y-3">
+                  <InvoiceToolbar
+                    masters={masters}
+                    pendingCount={pendingCount}
+                    selectedCount={selectedCount}
+                    canApplyCompany={invoices.some((i) => i.status === "extracted" || i.status === "pending")}
+                    importing={importing}
+                    exportingExcel={exportingExcel}
+                    refreshingPartners={refreshingPartners}
+                    hasImported={invoices.some((i) => i.importStatus === "success")}
+                    onAddPdfs={handleFiles}
+                    onExtract={handleExtract}
+                    onImport={handleImport}
+                    onExport={handleExcelExport}
+                    onRefreshPartners={handleRefreshPartners}
+                    onMassCompany={handleMassCompany}
+                    onClearImported={() => {
+                      setInvoices((prev) => prev.filter((i) => i.importStatus !== "success"));
                       setActiveInvoiceId(null);
                     }}
-                    className="text-xs text-gray-400 hover:text-gray-600"
-                  >
-                    Limpiar importadas
-                  </button>
-                </div>
+                  />
 
-                {/* Split panel: table (left) + PDF viewer (right) */}
-                <div className="grid gap-4" style={{ gridTemplateColumns: `1fr ${viewerWidth}px` }}>
-                  {/* Left — invoice table (scrollable) */}
-                  <div className="min-w-0 overflow-x-auto">
-                    <InvoiceTable
-                      invoices={invoices}
-                      masters={masters}
-                      onChange={updateInvoice}
-                      onDelete={deleteInvoice}
-                      activeId={activeInvoiceId}
-                      onSelect={setActiveInvoiceId}
-                      journalMap={config.defaultJournalMap}
-                      accountMap={config.defaultAccountMap}
-                      taxMap={config.defaultTaxMap}
-                      extractionEngine={config.extractionEngine}
-                    />
-                  </div>
-
-                  {/* Right — sticky PDF viewer with resize handle on left edge */}
-                  <div
-                    className="sticky top-4 relative"
-                    style={{ height: "calc(100vh - 160px)" }}
-                  >
-                    {/* Drag handle */}
-                    <div
-                      className="absolute -left-3 top-0 bottom-0 w-6 z-20 flex items-center justify-center cursor-col-resize group"
-                      onMouseDown={(e) => {
-                        dragRef.current = { active: true, startX: e.clientX, startWidth: viewerWidth };
-                        document.body.style.userSelect = "none";
-                        document.body.style.cursor = "col-resize";
-                        e.preventDefault();
-                      }}
-                    >
-                      <div className="w-1 h-12 rounded-full bg-gray-300/30 group-hover:bg-sky-400/70 transition-colors" />
+                  {/* Split panel: table (left) + PDF viewer (right) */}
+                  <div className="grid gap-4" style={{ gridTemplateColumns: `1fr ${viewerWidth}px` }}>
+                    <div className="min-w-0 overflow-x-auto">
+                      <InvoiceTable
+                        invoices={invoices}
+                        masters={masters}
+                        onChange={updateInvoice}
+                        onDelete={deleteInvoice}
+                        activeId={activeInvoiceId}
+                        onSelect={setActiveInvoiceId}
+                        journalMap={config.defaultJournalMap}
+                        accountMap={config.defaultAccountMap}
+                        taxMap={config.defaultTaxMap}
+                        extractionEngine={config.extractionEngine}
+                      />
                     </div>
-                    <PdfViewer
-                      invoice={
-                        invoices.find((i) => i.id === activeInvoiceId) ?? null
-                      }
-                    />
+
+                    {/* Sticky PDF viewer with resize handle on left edge */}
+                    <div className="sticky top-4 relative" style={{ height: "calc(100vh - 10rem)" }}>
+                      <div
+                        className="absolute -left-3 top-0 bottom-0 w-6 z-20 flex items-center justify-center cursor-col-resize group"
+                        onMouseDown={(e) => {
+                          dragRef.current = { active: true, startX: e.clientX, startWidth: viewerWidth };
+                          document.body.style.userSelect = "none";
+                          document.body.style.cursor = "col-resize";
+                          e.preventDefault();
+                        }}
+                      >
+                        <div className="w-1 h-12 rounded-full bg-gray-300/30 group-hover:bg-sky-400/70 transition-colors" />
+                      </div>
+                      <PdfViewer invoice={invoices.find((i) => i.id === activeInvoiceId) ?? null} />
+                    </div>
                   </div>
                 </div>
-              </>
-            )}
-          </div>
-        )}
-      </main>
+              )}
+            </PdfDropTarget>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

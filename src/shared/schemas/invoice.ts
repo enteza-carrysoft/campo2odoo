@@ -15,27 +15,36 @@ export const appConfigSchema = z.object({
 export type AppConfigInput = z.infer<typeof appConfigSchema>;
 
 export const extractRequestSchema = z.object({
-  engine: z.enum(["native", "azure-di", "llm"]),
+  engine: z.enum(["native", "azure-di", "llm"]).default("native"),
   azureDiEndpoint: z.string().optional(),
   azureDiKey: z.string().optional(),
+  noSplit: z.enum(["true", "false"]).default("false").transform((v) => v === "true"),
+  ownTaxIds: z.string().default("[]").transform((v, ctx) => {
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string").slice(0, 100);
+    } catch {}
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "ownTaxIds inválido" });
+    return z.NEVER;
+  }),
 });
 
-export const odooTestSchema = z.object({
-  odooUrl: z.string().url(),
-  odooDb: z.string().min(1),
-  odooUsername: z.string().min(1),
-  odooApiKey: z.string().min(1),
-});
+// Credenciales de Odoo: vacías = usar las del servidor (ver server-credentials.ts).
+const odooCredentialFields = {
+  odooUrl: z.union([z.literal(""), z.string().url("URL de Odoo inválida")]).default(""),
+  odooDb: z.string().default(""),
+  odooUsername: z.string().default(""),
+  odooApiKey: z.string().default(""),
+};
+
+export const odooTestSchema = z.object(odooCredentialFields);
 
 export const odooMastersSchema = odooTestSchema.extend({
   odooVersion: z.enum(["15", "18"]).default("18"),
 });
 
 export const importInvoiceSchema = z.object({
-  odooUrl: z.string().url(),
-  odooDb: z.string().min(1),
-  odooUsername: z.string().min(1),
-  odooApiKey: z.string().min(1),
+  ...odooCredentialFields,
   odooVersion: z.enum(["15", "18"]).default("18"),
   companyId: z.number().int().positive(),
   partnerId: z.number().int().nullable().optional(),

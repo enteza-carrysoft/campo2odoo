@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OdooClient } from "@/shared/lib/odoo/client";
+import { resolveOdooCredentials } from "@/shared/lib/server-credentials";
 import { importInvoiceToOdoo } from "@/shared/lib/odoo/importer";
 import { importInvoiceSchema } from "@/shared/schemas/invoice";
 
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const data = parsed.data;
+    const data = { ...parsed.data, ...resolveOdooCredentials(parsed.data) };
     const client = new OdooClient(
       data.odooUrl,
       data.odooDb,

@@ -17,9 +17,10 @@ Campo2Odoo lee facturas de proveedor en PDF, extrae sus datos y las crea como fa
 - **Framework**: Next.js 16 (App Router) + React 19 + TypeScript
 - **Estilos**: Tailwind CSS v4 (postcss); clases compartidas en el objeto `cx` de `src/shared/styles.ts`, sin `@apply`
 - **Validación**: Zod (`src/shared/schemas/`)
-- **Extracción PDF**: pdf-parse (texto nativo) y Azure Document Intelligence (prebuilt-invoice)
+- **Extracción PDF**: pdf-parse (texto nativo) y Azure Document Intelligence (API REST v4, `prebuilt-invoice`, página a página). Todo resultado pasa por `extraction/validate.ts` (NIF con dígito de control, emisor/receptor, cuadre base + IVA = total, IRPF, IVA por línea), que corrige lo demostrable y deja avisos en `warnings`; nunca inventa valores
 - **Odoo**: JSON-RPC con `fetch` nativo, versiones 15 y 18 (`src/shared/lib/odoo/`)
-- **Sin base de datos ni autenticación**: la configuración se guarda en `localStorage` y se pre-rellena desde `.env.local` vía `/api/config`
+- **Sin base de datos**: la configuración se guarda en `localStorage` y se pre-rellena desde `.env.local` vía `/api/config`
+- **Acceso**: contraseña única (`APP_PASSWORD`) comprobada en `src/proxy.ts`. Las claves de Odoo y Azure del entorno solo se usan en el servidor (`server-credentials.ts`); nunca se devuelven al navegador
 - **Despliegue**: Vercel
 
 ### Architecture: Feature-First
@@ -40,6 +41,8 @@ Lo nuevo va en la feature a la que pertenece; lo que usan varias features, en `s
 - `npm run dev` - Servidor de desarrollo
 - `npm run build` - Build de producción
 - `npm run typecheck` - Verificación de tipos
+- `npm test` - Tests (runner de Node vía tsx, archivos `*.test.ts`)
+- `npx tsx --env-file=.env.local scripts/eval-extraction.ts <carpeta>` - Mide el acierto de la extracción contra `*.expected.json` (gasta llamadas a Azure)
 - `npm run lint` está roto: usa `next lint`, que Next.js 16 eliminó, y ESLint no está instalado.
 
 ## 📝 Convenciones de Código
@@ -85,7 +88,7 @@ export function Button({ children, variant = 'primary', onClick }: Props) {
 
 ## Tests
 
-Todavía no hay framework de tests instalado. Si añades tests, propón primero la herramienta (p. ej. Vitest) en vez de asumir Jest. Mientras tanto, la verificación mínima es `npm run typecheck` + `npm run build`.
+Tests con el runner integrado de Node (`node:test`) ejecutado por tsx; junto al código, como `validate.test.ts`. Verificación mínima antes de dar algo por hecho: `npm test`, `npm run typecheck` y `npm run build`.
 
 ## Git
 

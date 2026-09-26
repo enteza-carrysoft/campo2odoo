@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OdooClient } from "@/shared/lib/odoo/client";
+import { resolveOdooCredentials } from "@/shared/lib/server-credentials";
 import { fetchMasters } from "@/shared/lib/odoo/masters";
 import { odooMastersSchema } from "@/shared/schemas/invoice";
 
@@ -14,7 +15,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { odooUrl, odooDb, odooUsername, odooApiKey, odooVersion } = parsed.data;
+    const { odooVersion } = parsed.data;
+    const { odooUrl, odooDb, odooUsername, odooApiKey } = resolveOdooCredentials(parsed.data);
     const client = new OdooClient(odooUrl, odooDb, odooUsername, odooApiKey);
     const masters = await fetchMasters(client, odooVersion);
 

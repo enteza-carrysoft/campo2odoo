@@ -20,6 +20,7 @@ export interface AppConfig {
 export interface OdooCompany {
   id: number;
   name: string;
+  vat?: string | false;
 }
 
 export interface OdooPartner {
@@ -75,6 +76,19 @@ export interface ExtractedLine {
   taxIds: number[];
 }
 
+export interface TaxBreakdownItem {
+  rate: number | null;
+  base: number | null;
+  amount: number | null;
+}
+
+export type ConfidenceField =
+  | "supplierName"
+  | "supplierVat"
+  | "invoiceNumber"
+  | "invoiceDate"
+  | "total";
+
 export interface ExtractedInvoice {
   supplierName: string | null;
   supplierVat: string | null;
@@ -90,6 +104,17 @@ export interface ExtractedInvoice {
   engine: ExtractionEngine;
   rawText?: string;
   pageRange?: number[];
+  /** Destinatario de la factura (normalmente una de nuestras empresas). */
+  customerName?: string | null;
+  customerVat?: string | null;
+  /** Desglose de IVA por tipo, tal como aparece en la factura. */
+  taxBreakdown?: TaxBreakdownItem[];
+  /** % de retención IRPF detectado (total = base + IVA − retención). */
+  withholdingRate?: number | null;
+  /** Confianza 0..1 por campo, según el motor de extracción. */
+  fieldConfidence?: Partial<Record<ConfidenceField, number>>;
+  /** Avisos de la validación automática: qué debe revisar el usuario. */
+  warnings?: string[];
 }
 
 export type InvoiceFileStatus =

@@ -10,12 +10,16 @@ interface Props {
   onChange: (c: AppConfig) => void;
   onMastersLoaded: (m: OdooMasters) => void;
   masters: OdooMasters | null;
+  /** Claves que ya tiene el servidor: el campo puede quedar vacío. */
+  serverSecrets?: { odooApiKey: boolean; azureDiKey: boolean };
 }
+
+const SERVER_KEY_PLACEHOLDER = "Configurada en el servidor (déjalo vacío)";
 
 type TestStatus = "idle" | "testing" | "ok" | "error";
 type MastersStatus = "idle" | "loading" | "ok" | "error";
 
-export function ConfigPanel({ config, onChange, onMastersLoaded, masters }: Props) {
+export function ConfigPanel({ config, onChange, onMastersLoaded, masters, serverSecrets }: Props) {
   const [testStatus, setTestStatus] = useState<TestStatus>("idle");
   const [testMessage, setTestMessage] = useState("");
   const [mastersStatus, setMastersStatus] = useState<MastersStatus>("idle");
@@ -140,12 +144,12 @@ export function ConfigPanel({ config, onChange, onMastersLoaded, masters }: Prop
             className={cx.input}
           />
         </Field>
-        <Field label="API Key" required>
+        <Field label="API Key" required={!serverSecrets?.odooApiKey}>
           <input
             type="password"
             value={config.odooApiKey}
             onChange={(e) => set("odooApiKey", e.target.value)}
-            placeholder="••••••••••••••••"
+            placeholder={serverSecrets?.odooApiKey ? SERVER_KEY_PLACEHOLDER : "••••••••••••••••"}
             className={cx.input}
           />
         </Field>
@@ -235,12 +239,12 @@ export function ConfigPanel({ config, onChange, onMastersLoaded, masters }: Prop
               className={cx.input}
             />
           </Field>
-          <Field label="Azure DI API Key" required>
+          <Field label="Azure DI API Key" required={!serverSecrets?.azureDiKey}>
             <input
               type="password"
               value={config.azureDiKey}
               onChange={(e) => set("azureDiKey", e.target.value)}
-              placeholder="••••••••••••••••"
+              placeholder={serverSecrets?.azureDiKey ? SERVER_KEY_PLACEHOLDER : "••••••••••••••••"}
               className={cx.input}
             />
           </Field>

@@ -19,6 +19,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Layers,
+  AlertTriangle,
 } from "lucide-react";
 
 interface Props {
@@ -336,6 +337,18 @@ export function InvoiceTable({ invoices, masters, onChange, onDelete, activeId, 
                         <pre className="text-xs text-red-800 whitespace-pre-wrap break-all font-mono bg-red-100 rounded p-3 mt-2 max-h-48 overflow-y-auto">
                           {inv.errorMessage}
                         </pre>
+                      </div>
+                    )}
+
+                    {/* Avisos de la validación automática */}
+                    {!!inv.extracted?.warnings?.length && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                        <p className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                          <AlertTriangle size={13} /> Revisa antes de importar
+                        </p>
+                        <ul className="list-disc pl-5 space-y-0.5 text-xs text-amber-800">
+                          {inv.extracted.warnings.map((w) => <li key={w}>{w}</li>)}
+                        </ul>
                       </div>
                     )}
 
@@ -705,6 +718,14 @@ function StatusBadge({ invoice }: { invoice: InvoiceFile }) {
     );
   }
   if (invoice.status === "extracted") {
+    const warnings = invoice.extracted?.warnings ?? [];
+    if (warnings.length > 0) {
+      return (
+        <span title={warnings.join("\n")} className="flex items-center gap-1 text-amber-600 text-xs cursor-help">
+          <AlertTriangle size={14} />Revisar ({warnings.length})
+        </span>
+      );
+    }
     return <span className="flex items-center gap-1 text-emerald-600 text-xs"><CheckCircle2 size={14} />Listo</span>;
   }
   return <span className="text-gray-400 text-xs">Pendiente</span>;

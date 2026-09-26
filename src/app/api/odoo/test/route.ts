@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OdooClient } from "@/shared/lib/odoo/client";
+import { resolveOdooCredentials } from "@/shared/lib/server-credentials";
 import { odooTestSchema } from "@/shared/schemas/invoice";
 
 export async function POST(req: NextRequest) {
@@ -13,15 +14,15 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { odooUrl, odooDb, odooUsername, odooApiKey } = parsed.data;
+    const { odooUrl, odooDb, odooUsername, odooApiKey } = resolveOdooCredentials(parsed.data);
     const client = new OdooClient(odooUrl, odooDb, odooUsername, odooApiKey);
     const uid = await client.authenticate();
 
     // Fetch available companies for info
-    const companies = await client.searchRead<{ id: number; name: string }>(
+    const companies = await client.searchRead<{ id: number; name: string; vat: string | false }>(
       "res.company",
       [],
-      ["id", "name"],
+      ["id", "name", "vat"],
       { limit: 50 }
     );
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { OdooClient } from "@/shared/lib/odoo/client";
+import { resolveOdooCredentials } from "@/shared/lib/server-credentials";
 import { odooTestSchema } from "@/shared/schemas/invoice";
 
 const ES = { context: { lang: "es_ES" } };
@@ -15,7 +16,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { odooUrl, odooDb, odooUsername, odooApiKey } = parsed.data;
+    const { odooUrl, odooDb, odooUsername, odooApiKey } = resolveOdooCredentials(parsed.data);
     const client = new OdooClient(odooUrl, odooDb, odooUsername, odooApiKey);
 
     await client.authenticate();

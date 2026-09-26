@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
+import { serverSecretFlags } from "@/shared/lib/server-credentials";
 
 /**
  * Devuelve los valores de configuración disponibles en las variables de entorno
  * del servidor (.env.local). El cliente los usa para pre-poblar el formulario
  * sin que el usuario tenga que introducir las credenciales manualmente.
  *
- * Solo se exponen los campos que ya están en el formulario de configuración;
- * nunca se exponen secretos a través de variables NEXT_PUBLIC.
+ * Las claves (API key de Odoo, clave de Azure) NUNCA se devuelven: solo se
+ * indica si el servidor las tiene, y las rutas de API las usan directamente.
  */
 
 function parseMap(raw: string | undefined): Record<string, number> | null {
@@ -26,9 +27,7 @@ export async function GET() {
     odooUrl: process.env.ODOO_URL ?? null,
     odooDb: process.env.ODOO_DB ?? null,
     odooUsername: process.env.ODOO_USERNAME ?? null,
-    odooApiKey: process.env.ODOO_API_KEY ?? null,
     azureDiEndpoint: process.env.AZURE_DI_ENDPOINT ?? null,
-    azureDiKey: process.env.AZURE_DI_KEY ?? null,
   };
 
   const present: Record<string, unknown> = Object.fromEntries(
@@ -43,5 +42,6 @@ export async function GET() {
   if (accountMap) present.defaultAccountMap = accountMap;
   if (taxMap)     present.defaultTaxMap     = taxMap;
 
+  present.serverSecrets = serverSecretFlags();
   return NextResponse.json(present);
 }
