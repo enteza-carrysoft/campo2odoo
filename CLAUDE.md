@@ -1,4 +1,4 @@
-# Proyecto: [NOMBRE_DEL_PROYECTO]
+# Proyecto: Campo2Odoo
 
 ## 🎯 Principios de Desarrollo (Context Engineering)
 
@@ -9,113 +9,38 @@
 - **SOLID**: Single Responsibility, Open/Closed, Liskov Substitution, Interface Segregation, Dependency Inversion
 
 ### Descripción del Proyecto
-[Breve descripción de qué hace tu proyecto y sus características principales]
+Campo2Odoo lee facturas de proveedor en PDF, extrae sus datos y las crea como facturas de proveedor en **borrador** (`move_type: "in_invoice"`) en Odoo. El usuario revisa y corrige los datos en una tabla antes de importar; también hay importación/exportación Excel con una plantilla propia.
 
 ## 🏗️ Tech Stack & Architecture
 
 ### Core Stack
-- **Runtime**: Node.js + TypeScript
-- **Framework**: Next.js 16 (App Router)
-- **Base de Datos**: PostgreSQL/Supabase
-- **Styling**: Tailwind CSS
-- **State Management**: Zustand
-- **Testing**: Jest + React Testing Library
-- **Schema Validation**: Zod
+- **Framework**: Next.js 16 (App Router) + React 19 + TypeScript
+- **Estilos**: Tailwind CSS v4 (postcss); clases compartidas en el objeto `cx` de `src/shared/styles.ts`, sin `@apply`
+- **Validación**: Zod (`src/shared/schemas/`)
+- **Extracción PDF**: pdf-parse (texto nativo) y Azure Document Intelligence (prebuilt-invoice)
+- **Odoo**: JSON-RPC con `fetch` nativo, versiones 15 y 18 (`src/shared/lib/odoo/`)
+- **Sin base de datos ni autenticación**: la configuración se guarda en `localStorage` y se pre-rellena desde `.env.local` vía `/api/config`
+- **Despliegue**: Vercel
 
 ### Architecture: Feature-First
-
-**Enfoque: Arquitectura Feature-First optimizada para desarrollo asistido por IA**
-
-Este proyecto usa una arquitectura **Feature-First** donde cada feature es independiente y contiene toda la lógica relacionada (componentes, hooks, servicios, tipos).
-
-#### Frontend: Feature-First
 ```
 src/
-├── app/                      # Next.js App Router
-│   ├── (auth)/              # Rutas de autenticación (grupo)
-│   ├── (main)/              # Rutas principales (grupo)
-│   ├── layout.tsx           # Layout root
-│   └── page.tsx             # Home page
-│
-├── features/                 # 🎯 Organizadas por funcionalidad
-│   ├── auth/                # Feature: Autenticación
-│   │   ├── components/      # Componentes específicos (LoginForm, etc.)
-│   │   ├── hooks/           # Hooks específicos (useAuth, etc.)
-│   │   ├── services/        # API calls (authService.ts)
-│   │   ├── types/           # Tipos específicos (User, Session, etc.)
-│   │   └── store/           # Estado local (authStore.ts)
-│   │
-│   ├── dashboard/           # Feature: Dashboard
-│   │   ├── components/
-│   │   ├── hooks/
-│   │   ├── services/
-│   │   ├── types/
-│   │   └── store/
-│   │
-│   └── [feature]/           # Otras features...
-│
-└── shared/                   # Código reutilizable
-    ├── components/          # UI components genéricos (Button, Card, etc.)
-    ├── hooks/               # Hooks genéricos (useDebounce, useLocalStorage, etc.)
-    ├── stores/              # Estado global (appStore.ts, userStore.ts)
-    ├── types/               # Tipos compartidos (api.ts, domain.ts)
-    ├── utils/               # Funciones utilitarias
-    ├── lib/                 # Configuraciones (supabase.ts, axios.ts)
-    ├── constants/           # Constantes de la app
-    └── assets/              # Imágenes, iconos, etc.
+├── app/                 # Página única (page.tsx) + Route Handlers en app/api/{config,extract,excel,odoo}
+├── features/            # UI por funcionalidad: config/, invoices/
+└── shared/
+    ├── lib/             # excel/, extraction/ (nativa, Azure DI, splitter), odoo/ (cliente, importer, masters, partner-match)
+    ├── schemas/         # Esquemas Zod
+    ├── types/
+    └── styles.ts        # Objeto cx con las clases Tailwind compartidas
 ```
+Lo nuevo va en la feature a la que pertenece; lo que usan varias features, en `shared/`.
 
-### Estructura de Proyecto Completa
-```
-proyecto/
-├── src/
-│   ├── app/                 # Next.js routes
-│   ├── features/            # Features por funcionalidad
-│   └── shared/              # Código reutilizable
-├── public/                  # Archivos estáticos
-├── supabase/                # Migraciones de BD
-│   └── migrations/
-├── .claude/                 # Configuración Claude Code
-├── docs/                    # Documentación técnica
-├── package.json
-├── tsconfig.json
-└── next.config.js
-```
+## 🛠️ Comandos
 
-> **🤖 ¿Por qué Feature-First?**
->
-> Esta estructura fue diseñada específicamente para **desarrollo asistido por IA**. La organización clara por features permite que los AI assistants:
-> - **Localicen rápidamente** todo el código relacionado con una feature en un mismo lugar
-> - **Entiendan el contexto completo** sin navegar múltiples directorios
-> - **Mantengan la separación de responsabilidades** al generar código nuevo
-> - **Escalen el proyecto** añadiendo features sin afectar el código existente
-> - **Generen código consistente** siguiendo patrones establecidos por feature
->
-> *La IA puede trabajar de forma más efectiva cuando la información está organizada siguiendo principios claros y predecibles.*
-
-## 🛠️ Comandos Importantes
-
-### Development
-- `npm run dev` - Servidor de desarrollo (auto-detecta puerto 3000-3006)
-- `npm run build` - Build para producción
-- `npm run preview` - Preview del build
-
-### Quality Assurance
-- `npm run test` - Ejecutar tests
-- `npm run test:watch` - Tests en modo watch
-- `npm run test:coverage` - Coverage report
-- `npm run lint` - ESLint
-- `npm run lint:fix` - Fix automático de linting
-- `npm run typecheck` - Verificación de tipos TypeScript
-
-### Skills Management
-- `python .claude/skills/skill-creator/scripts/init_skill.py my-skill` - Crear nuevo skill
-- `python .claude/skills/skill-creator/scripts/quick_validate.py ./my-skill` - Validar skill
-- `python .claude/skills/skill-creator/scripts/package_skill.py ./my-skill` - Empaquetar skill
-
-### Git Workflow
-- `npm run commit` - Commit con Conventional Commits
-- `npm run pre-commit` - Hook de pre-commit
+- `npm run dev` - Servidor de desarrollo
+- `npm run build` - Build de producción
+- `npm run typecheck` - Verificación de tipos
+- `npm run lint` está roto: usa `next lint`, que Next.js 16 eliminó, y ESLint no está instalado.
 
 ## 📝 Convenciones de Código
 
@@ -158,323 +83,39 @@ export function Button({ children, variant = 'primary', onClick }: Props) {
 }
 ```
 
-## 🧪 Testing Strategy
+## Tests
 
-### Test-Driven Development (TDD)
-1. **Red**: Escribe el test que falla
-2. **Green**: Implementa código mínimo para pasar
-3. **Refactor**: Mejora el código manteniendo tests verdes
+Todavía no hay framework de tests instalado. Si añades tests, propón primero la herramienta (p. ej. Vitest) en vez de asumir Jest. Mientras tanto, la verificación mínima es `npm run typecheck` + `npm run build`.
 
-### Test Structure (AAA Pattern)
-```typescript
-// ✅ GOOD: Clear test structure
-test('should calculate total with tax', () => {
-  // Arrange
-  const items = [{ price: 100 }, { price: 200 }];
-  const taxRate = 0.1;
-  
-  // Act
-  const result = calculateTotal(items, taxRate);
-  
-  // Assert  
-  expect(result).toBe(330);
-});
-```
+## Git
 
-### Coverage Goals
-- **Unit Tests**: 80%+ coverage
-- **Integration Tests**: Critical paths
-- **E2E Tests**: Main user journeys
+Rama principal: `master`. Mensajes en Conventional Commits (`feat(odoo): ...`, `fix(extract): ...`).
 
-## 🔒 Security Best Practices
+## Restricciones
 
-### Input Validation
-- Validate all user inputs
-- Sanitize data before processing
-- Use schema validation (Zod, Yup, etc.)
+- Sin `any` en TypeScript (usa `unknown`).
+- Nada de secretos en el código ni en variables `NEXT_PUBLIC_*`: las claves de Odoo y Azure solo viven en el servidor o en la config local del usuario.
+- No registres en logs datos de facturas ni credenciales.
 
-### Authentication & Authorization
-- JWT tokens con expiración
-- Role-based access control
-- Secure session management
+## Referencias
 
-### Data Protection
-- Never log sensitive data
-- Encrypt data at rest
-- Use HTTPS everywhere
+- Especificación original (parcialmente superada por el stack real): `especificacion_nextjs_facturas_odoo18.md`
 
-## ⚡ Performance Guidelines
+## Verificar antes de asumir
 
-### Code Splitting
-- Route-based splitting
-- Component lazy loading
-- Dynamic imports
+Comprueba en la documentación o en `node_modules` que la versión de una API o librería existe y se comporta como crees antes de usarla. Tras crear o cambiar un endpoint, pruébalo.
 
-### State Management
-- Local state first
-- Global state only when needed
-- Memoization for expensive computations
+## Manejo de errores
 
-### Database Optimization
-- Index frequently queried columns
-- Use pagination for large datasets
-- Cache repeated queries
+Las llamadas externas (Odoo JSON-RPC, Azure Document Intelligence) deben llevar timeout y, si fallan, devolver un error visible al usuario. Nunca sustituyas un fallo por datos simulados: esta app crea facturas contables, y un valor inventado que llega a Odoo es peor que un error.
 
-## 🔄 Git Workflow & Repository Rules
+## Servidor de desarrollo
 
-### Branch Strategy
-- `main` - Production ready code
-- `develop` - Integration branch
-- `feature/TICKET-123-description` - Feature branches
-- `hotfix/TICKET-456-description` - Hotfixes
+`npm run dev` ejecuta `next dev` (puerto 3000 por defecto; Next elige otro si está ocupado). El entorno es Windows: usa `netstat -ano | findstr :3000` y `taskkill /PID <pid> /F` para liberar un puerto.
 
-### Commit Convention (Conventional Commits)
-```
-type(scope): description
+## Verificación visual
 
-feat(auth): add OAuth2 integration
-fix(api): handle null user response  
-docs(readme): update installation steps
-```
-
-### Pull Request Rules
-- **No direct commits** a `main` o `develop`
-- **Require PR review** antes de merge
-- **All tests must pass** antes de merge
-- **Squash and merge** para mantener historia limpia
-
-## ❌ No Hacer (Critical)
-
-### Code Quality
-- ❌ No usar `any` en TypeScript
-- ❌ No hacer commits sin tests
-- ❌ No omitir manejo de errores
-- ❌ No hardcodear configuraciones
-
-### Security  
-- ❌ No exponer secrets en código
-- ❌ No loggear información sensible
-- ❌ No saltarse validación de entrada
-- ❌ No usar HTTP en producción
-
-### Architecture
-- ❌ No editar archivos en `src/legacy/`
-- ❌ No crear dependencias circulares
-- ❌ No mezclar concerns en un componente
-- ❌ No usar global state innecesariamente
-
-## 📚 Referencias & Context
-
-### Project Files
-- Ver @README.md para overview detallado
-- Ver @package.json para scripts disponibles
-- Ver @.claude/docs/ para workflows y documentación
-- Ver @.mcp.json.examples para MCPs disponibles
-
-### External Dependencies
-- Documentación oficial de frameworks
-- Best practices guides
-- Security guidelines (OWASP)
-
-## 🤖 AI Assistant Guidelines
-
-### When Suggesting Code
-- Siempre incluir types en TypeScript
-- Seguir principles de CLAUDE.md
-- Implementar error handling
-- Incluir tests cuando sea relevante
-
-### When Reviewing Code  
-- Verificar adherencia a principios SOLID
-- Validar security best practices
-- Sugerir optimizaciones de performance
-- Recomendar mejoras en testing
-
-### Context Priority
-1. **CLAUDE.md rules** (highest priority)
-2. **.claude/docs/** workflows y guías
-3. **Project-specific files** (package.json, etc.)
-4. **General best practices**
-
-## 🚀 Pre-Development Validation Protocol
-
-### API & Dependencies Current Check
-**CRÍTICO**: Siempre verificar antes de asumir
-- [ ] ✅ Verificar que las versiones de APIs/modelos existen (ej: GPT-5 no existe aún)
-- [ ] ✅ Confirmar que las librerías están actualizadas
-- [ ] ✅ Validar endpoints externos funcionan
-- [ ] ✅ Tener fallbacks para todas las dependencias externas
-
-### Simplicity-First Development
-- [ ] ✅ Crear versión simplificada primero (`simple_main.py`)
-- [ ] ✅ Probar funcionalidad básica antes de agregar complejidad
-- [ ] ✅ Mantener siempre una versión "modo demo" que funcione
-- [ ] ✅ Implementar mock data para casos donde servicios externos fallen
-
-### Incremental Validation Strategy
-- [ ] ✅ Probar cada endpoint inmediatamente después de crearlo
-- [ ] ✅ Usar TodoWrite para tracking sistemático de progreso
-- [ ] ✅ Validar UI después de cada cambio importante
-- [ ] ✅ Mantener logs detallados de errores para debugging
-
-## 🔄 Error-First Development Protocol
-
-### Manejo de Errores Predictivos
-```python
-# ✅ GOOD: Siempre incluir fallbacks
-try:
-    ai_result = await openai_call()
-except Exception as e:
-    print(f"AI call failed: {e}")
-    ai_result = get_mock_fallback()  # Siempre tener fallback
-```
-
-### Debugging Sin Visibilidad Directa
-- **Usar logs extensivos** con emojis para fácil identificación
-- **Crear endpoints de testing** (`/test-connection`, `/health`)  
-- **Implementar timeouts** en todas las llamadas externas
-- **Hacer requests incrementales** - nunca asumir que algo complejo funcionará
-
-## 🔌 Auto Port Detection (CRÍTICO para desarrollo)
-
-### Problema: "EADDRINUSE - Puerto Ocupado"
-**Solución implementada:** Scripts que auto-detectan puertos disponibles
-
-### Frontend (Next.js) - Puertos 3000-3006
-**Script:** `frontend/scripts/dev-server.js`
-
-```javascript
-// Auto-detecta primer puerto disponible en rango 3000-3006
-// Checks both IPv4 (0.0.0.0) and IPv6 (::)
-npm run dev  // Usa auto-port detection
-```
-
-**Características:**
-- ✅ Chequea puertos 3000-3006 secuencialmente
-- ✅ Compatible con IPv4 y IPv6 (Next.js usa `::`)
-- ✅ Fallback automático si puerto ocupado
-- ✅ Graceful shutdown (SIGINT/SIGTERM)
-
-### Backend (FastAPI) - Puertos 8000-8006
-**Script:** `backend/dev_server.py`
-
-```python
-# Auto-detecta primer puerto disponible en rango 8000-8006
-python dev_server.py  # Usa auto-port detection
-```
-
-**Características:**
-- ✅ Chequea puertos 8000-8006 secuencialmente
-- ✅ Bind a `0.0.0.0` para acceso desde cualquier interface
-- ✅ Fallback automático si puerto ocupado
-- ✅ Keyboard interrupt handling
-
-### CORS Backend Configuration
-**Importante:** Backend CORS está configurado para soportar puertos dinámicos:
-
-```python
-# backend/main.py
-ALLOWED_ORIGINS = [
-    "https://tu-app.vercel.app",  # Production
-    *[f"http://localhost:{port}" for port in range(3000, 3007)],
-    *[f"http://127.0.0.1:{port}" for port in range(3000, 3007)],
-]
-```
-
-### Best Practices
-- ❌ **NO usar `uvicorn main:app` directamente** → puerto hardcodeado
-- ✅ **SÍ usar `python dev_server.py`** → auto-port detection
-- ❌ **NO usar `next dev` directamente** → puerto hardcodeado
-- ✅ **SÍ usar `npm run dev`** → auto-port detection
-
-### Debugging Port Issues
-```bash
-# Ver qué proceso está usando un puerto
-lsof -i :3000
-lsof -i :8000
-
-# Matar proceso específico
-kill -9 <PID>
-
-# Matar todos los servidores de desarrollo
-pkill -f "next dev"
-pkill -f "uvicorn"
-```
-
-## 🎯 Advanced Real-Time Debugging (Expert Level)
-
-### Background Log Streaming Setup
-```bash
-# 1. Start dev servers with log capture
-npm run dev 2>&1 | tee frontend.log
-uvicorn main:app --reload 2>&1 | tee backend.log
-
-# 2. Monitor logs in real-time (Claude Code)
-tail -f frontend.log | claude -p "Alert me of compilation errors"
-
-# 3. Use Background Commands (Ctrl+B)
-npm run dev  # Press Ctrl+B to run in background
-# Then use BashOutput tool to monitor status
-```
-
-### Claude Code Web Interface
-```bash
-# Install web interface for visual log monitoring
-npm install -g claude-code-web
-claude-code-web --debug  # Enhanced logging mode
-
-# Or use alternative: 
-npx claude-code-web --dev  # Development mode with verbose logs
-```
-
-### Multi-Terminal Monitoring Pattern
-```bash
-# Terminal 1: Backend with structured logging
-python -m uvicorn main:app --reload --log-level debug
-
-# Terminal 2: Frontend with compilation monitoring
-npm run dev -- --verbose
-
-# Terminal 3: Claude Code with combined log analysis
-tail -f *.log | claude -p "Debug any compilation or runtime errors immediately"
-```
-
-### Background Task Management
-- **Use Ctrl+B** para run commands in background
-- **BashOutput tool** para retrieving incremental output
-- **Filter logs** for specific patterns (ERROR, WARN, Compil)
-- **Status tracking** (running/completed/killed)
-
-## 🎨 Bucle Agéntico con Playwright MCP
-
-### Metodología de Desarrollo Visual
-**Problema:** IA genera frontends genéricos sin poder ver el resultado  
-**Solución:** Playwright MCP otorga "ojos" al AI para iteración visual
-
-### Bucle Agéntico Frontend
-```
-1. Código UI → 2. Playwright Screenshot → 3. Visual Compare → 4. Iterate
-```
-
-### Playwright MCP Integration
-- **browser_snapshot**: Captura estado actual de la página
-- **browser_take_screenshot**: Screenshots para comparación visual
-- **browser_navigate**: Navegación automática para testing
-- **browser_click/type**: Interacción automatizada con UI
-- **browser_resize**: Testing responsive en diferentes viewports
-
-### Visual Development Protocol
-1. **Implementar componente** siguiendo specs
-2. **Capturar screenshot** con Playwright
-3. **Comparar vs design requirements**
-4. **Iterar automáticamente** hasta pixel-perfect
-5. **Validar responsiveness** en mobile/tablet/desktop
-
-### Integration con Design Review
-- Activar review visual automático post-implementación
-- Usar criterios objetivos de diseño (spacing, colors, typography)
-- Generar feedback específico y accionable
-- Prevenir frontends genéricos mediante validación visual
+Hay MCPs de Playwright y Chrome DevTools configurados. Tras un cambio de UI, abre la página y comprueba el resultado en el navegador antes de dar la tarea por terminada.
 
 ---
 
